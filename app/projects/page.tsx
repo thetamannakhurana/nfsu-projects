@@ -1,7 +1,7 @@
 'use client';
 
 import { useSearchParams, useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Suspense } from 'react';
 
 interface Project {
   campus: string;
@@ -15,7 +15,7 @@ interface Project {
   guideName: string;
 }
 
-export default function ProjectsPage() {
+function ProjectsContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const [projects, setProjects] = useState<Project[]>([]);
@@ -156,5 +156,13 @@ export default function ProjectsPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function ProjectsPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-white">Loading...</div>}>
+      <ProjectsContent />
+    </Suspense>
   );
 }

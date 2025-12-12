@@ -1,9 +1,9 @@
 'use client';
 
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useState } from 'react';
+import { useState, Suspense } from 'react';
 
-export default function SelectPage() {
+function SelectContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   
@@ -152,5 +152,13 @@ export default function SelectPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function SelectPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-white">Loading...</div>}>
+      <SelectContent />
+    </Suspense>
   );
 }
