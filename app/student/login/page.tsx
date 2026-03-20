@@ -32,8 +32,7 @@ function LoginForm() {
         setLoading(false)
         return
       }
-      router.push('/student/dashboard')
-    } catch {
+      window.location.href = '/student/dashboard'    } catch {
       setError('Network error. Please try again.')
       setLoading(false)
     }
