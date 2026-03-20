@@ -1,108 +1,88 @@
-// Save as: app/student/register/page.tsx  (create this folder + file)
 'use client'
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { NFSU_COURSES, getCurrentSemester, getProjectTypeForSem } from '@/lib/nfsu-constants'
 
-interface Course { id: number; name: string; short_name: string; duration_years: number }
-interface Specialization { id: number; name: string }
 interface Campus { id: number; name: string; code: string }
 
 export default function StudentRegisterPage() {
-  const router = useRouter()
   const [campuses, setCampuses] = useState<Campus[]>([])
-  const [courses, setCourses] = useState<Course[]>([])
-  const [specs, setSpecs] = useState<Specialization[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [step, setStep] = useState(1)
+  const [success, setSuccess] = useState(false)
 
   const [form, setForm] = useState({
     name: '', email: '', password: '', confirmPassword: '',
-    enrollment_number: '',
-    campus_id: '', course_id: '', specialization_id: '', batch_start_year: '',
+    enrollment_number: '', campus_id: '', course_name: '', batch_start_year: '',
   })
 
   useEffect(() => {
     fetch('/api/campuses').then(r => r.json()).then(d => setCampuses(d.campuses || []))
   }, [])
 
-  useEffect(() => {
-    if (form.campus_id) {
-      fetch(`/api/courses?campus_id=${form.campus_id}`).then(r => r.json()).then(d => setCourses(d.courses || []))
-      set('course_id', ''); set('specialization_id', '')
-    }
-  }, [form.campus_id])
-
-  useEffect(() => {
-    if (form.course_id) {
-      fetch(`/api/specializations?course_id=${form.course_id}`).then(r => r.json()).then(d => setSpecs(d.specializations || []))
-      set('specialization_id', '')
-    }
-  }, [form.course_id])
-
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
 
-  // Auto-calc batch end and current semester
-  const selectedCourse = courses.find(c => c.id === parseInt(form.course_id))
+  const selectedCourse = NFSU_COURSES.find(c => c.name === form.course_name)
   const batchEnd = form.batch_start_year && selectedCourse
-    ? parseInt(form.batch_start_year) + selectedCourse.duration_years
-    : null
+    ? parseInt(form.batch_start_year) + selectedCourse.duration : null
+  const currentSem = form.batch_start_year && selectedCourse
+    ? getCurrentSemester(parseInt(form.batch_start_year), selectedCourse.totalSem) : null
+  const projectType = currentSem && selectedCourse
+    ? getProjectTypeForSem(currentSem, selectedCourse.totalSem) : null
 
-  const currentSemester = (() => {
-    if (!form.batch_start_year || !selectedCourse) return null
-    const now = new Date()
-    const batchStart = parseInt(form.batch_start_year)
-    const monthsElapsed = (now.getFullYear() - batchStart) * 12 + now.getMonth()
-    // Each semester is ~6 months. Odd sems start July, even sems start Jan
-    const sem = Math.min(Math.ceil((monthsElapsed + 1) / 6), selectedCourse.duration_years * 2)
-    return Math.max(1, sem)
-  })()
+  const projectMessage = () => {
+    if (!currentSem || !selectedCourse) return null
+    const type = getProjectTypeForSem(currentSem, selectedCourse.totalSem)
+    if (type === 'major') return { text: `You are in Semester ${currentSem} — eligible for Major Project only`, color: 'bg-amber-50 border-amber-200 text-amber-800' }
+    if (type === 'minor') return { text: `You are in Semester ${currentSem} — eligible for Minor Project only`, color: 'bg-blue-50 border-blue-200 text-blue-800' }
+    return { text: `You are in Semester ${currentSem}`, color: 'bg-green-50 border-green-200 text-green-800' }
+  }
+
+  const msg = projectMessage()
+  const years = Array.from({ length: 8 }, (_, i) => new Date().getFullYear() - i)
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError('')
-
-    if (!form.email.endsWith('@nfsu.ac.in')) {
-      setError('Only NFSU email addresses (@nfsu.ac.in) are allowed')
-      return
-    }
-    if (form.password !== form.confirmPassword) {
-      setError('Passwords do not match')
-      return
-    }
-    if (form.password.length < 6) {
-      setError('Password must be at least 6 characters')
-      return
-    }
-
+    if (!form.email.endsWith('@nfsu.ac.in')) { setError('Only NFSU email addresses (@nfsu.ac.in) are allowed'); return }
+    if (form.password !== form.confirmPassword) { setError('Passwords do not match'); return }
+    if (form.password.length < 6) { setError('Password must be at least 6 characters'); return }
     setLoading(true)
     try {
       const res = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name: form.name,
-          email: form.email,
-          password: form.password,
+          name: form.name, email: form.email, password: form.password,
           enrollment_number: form.enrollment_number,
           campus_id: form.campus_id ? parseInt(form.campus_id) : null,
-          course_id: form.course_id ? parseInt(form.course_id) : null,
-          specialization_id: form.specialization_id ? parseInt(form.specialization_id) : null,
+          course_name: form.course_name,
           batch_start_year: form.batch_start_year ? parseInt(form.batch_start_year) : null,
           batch_end_year: batchEnd,
+          current_semester: currentSem,
         })
       })
       const data = await res.json()
       if (!res.ok) { setError(data.error); setLoading(false); return }
-      router.push('/student/login?registered=1')
+      setSuccess(true)
     } catch {
       setError('Registration failed. Try again.')
       setLoading(false)
     }
   }
 
-  const years = Array.from({ length: 8 }, (_, i) => new Date().getFullYear() - i)
+  if (success) {
+    return (
+      <div className="min-h-screen bg-nfsu-offwhite flex items-center justify-center p-6">
+        <div className="bg-white rounded-2xl border border-gray-200 p-8 max-w-sm w-full text-center">
+          <div className="text-5xl mb-4">🎉</div>
+          <h2 className="font-heading font-bold text-nfsu-navy text-xl mb-2">Registration Successful!</h2>
+          <p className="text-gray-500 text-sm mb-5">Your account has been created. You can now login.</p>
+          <a href="/student/login" className="btn-primary w-full justify-center">Go to Login</a>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-nfsu-offwhite flex flex-col">
@@ -115,33 +95,32 @@ export default function StudentRegisterPage() {
               <div className="text-sm font-semibold">Projects Database</div>
             </div>
           </Link>
-          <Link href="/student/login" className="text-white/60 text-sm hover:text-white transition-colors">
-            Already registered? Login →
-          </Link>
+          <Link href="/student/login" className="text-white/60 text-sm hover:text-white">Already registered? Login →</Link>
         </div>
       </div>
       <div className="gold-line" />
 
-      <div className="flex-1 flex items-start justify-center p-4 sm:p-6 pt-8">
+      <div className="flex-1 flex items-start justify-center p-4 sm:p-6 pt-8 pb-12">
         <div className="w-full max-w-lg">
           <div className="text-center mb-6">
             <div className="w-16 h-16 bg-nfsu-navy rounded-2xl flex items-center justify-center text-2xl mx-auto mb-3">🎓</div>
             <h1 className="text-2xl font-heading font-bold text-nfsu-navy">Student Registration</h1>
-            <p className="text-gray-500 text-sm mt-1">Register with your NFSU email to submit project guidance requests</p>
+            <p className="text-gray-500 text-sm mt-1">Register with your NFSU email to send project guidance requests</p>
           </div>
 
           <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 sm:p-8">
             {error && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3 mb-5">⚠️ {error}</div>}
 
             <form onSubmit={handleSubmit} className="space-y-4">
-              {/* Personal Info */}
+
+              {/* Personal */}
               <div>
                 <label className="form-label">Full Name *</label>
                 <input type="text" value={form.name} onChange={e => set('name', e.target.value)}
                   required placeholder="As per university records" className="form-input" />
               </div>
               <div>
-                <label className="form-label">NFSU Email Address *</label>
+                <label className="form-label">NFSU Email *</label>
                 <input type="email" value={form.email} onChange={e => set('email', e.target.value)}
                   required placeholder="yourname@nfsu.ac.in" className="form-input" />
                 <p className="text-xs text-gray-400 mt-1">Only @nfsu.ac.in emails are accepted</p>
@@ -152,53 +131,99 @@ export default function StudentRegisterPage() {
                   placeholder="University enrollment number" className="form-input" />
               </div>
 
-              {/* Academic Info */}
+              {/* Academic */}
               <div className="pt-2 border-t border-gray-100">
                 <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Academic Details</p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="sm:col-span-2">
+
+                <div className="space-y-4">
+                  <div>
                     <label className="form-label">Campus *</label>
                     <select value={form.campus_id} onChange={e => set('campus_id', e.target.value)} required className="form-input">
                       <option value="">Select Campus</option>
                       {campuses.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                     </select>
                   </div>
-                  <div className="sm:col-span-2">
+
+                  <div>
                     <label className="form-label">Course / Program *</label>
-                    <select value={form.course_id} onChange={e => set('course_id', e.target.value)} required disabled={!form.campus_id} className="form-input">
-                      <option value="">Select Course</option>
-                      {courses.map(c => <option key={c.id} value={c.id}>{c.name} ({c.short_name})</option>)}
+                    <select value={form.course_name} onChange={e => set('course_name', e.target.value)} required className="form-input">
+                      <option value="">Select your course</option>
+                      <optgroup label="B.Tech (4 Years)">
+                        {NFSU_COURSES.filter(c => c.duration === 4).map(c => (
+                          <option key={c.name} value={c.name}>{c.name}</option>
+                        ))}
+                      </optgroup>
+                      <optgroup label="B.Tech-M.Tech Integrated (5 Years)">
+                        {NFSU_COURSES.filter(c => c.duration === 5 && c.name.includes('B.Tech-M.Tech')).map(c => (
+                          <option key={c.name} value={c.name}>{c.name}</option>
+                        ))}
+                      </optgroup>
+                      <optgroup label="M.Tech (2 Years)">
+                        {NFSU_COURSES.filter(c => c.duration === 2 && c.name.startsWith('M.Tech')).map(c => (
+                          <option key={c.name} value={c.name}>{c.name}</option>
+                        ))}
+                      </optgroup>
+                      <optgroup label="M.Sc (2 Years)">
+                        {NFSU_COURSES.filter(c => c.duration === 2 && c.name.startsWith('M.Sc')).map(c => (
+                          <option key={c.name} value={c.name}>{c.name}</option>
+                        ))}
+                      </optgroup>
+                      <optgroup label="B.Sc-M.Sc Integrated (5 Years)">
+                        {NFSU_COURSES.filter(c => c.duration === 5 && c.name.startsWith('B.Sc')).map(c => (
+                          <option key={c.name} value={c.name}>{c.name}</option>
+                        ))}
+                      </optgroup>
+                      <optgroup label="BBA-MBA (5 Years)">
+                        {NFSU_COURSES.filter(c => c.name.startsWith('BBA')).map(c => (
+                          <option key={c.name} value={c.name}>{c.name}</option>
+                        ))}
+                      </optgroup>
+                      <optgroup label="M.A (2 Years)">
+                        {NFSU_COURSES.filter(c => c.name.startsWith('M.A')).map(c => (
+                          <option key={c.name} value={c.name}>{c.name}</option>
+                        ))}
+                      </optgroup>
+                      <optgroup label="Ph.D (3 Years)">
+                        {NFSU_COURSES.filter(c => c.name.startsWith('Ph.D')).map(c => (
+                          <option key={c.name} value={c.name}>{c.name}</option>
+                        ))}
+                      </optgroup>
                     </select>
+                    {selectedCourse && (
+                      <p className="text-xs text-gray-400 mt-1">
+                        Duration: {selectedCourse.duration} years · {selectedCourse.totalSem} semesters
+                      </p>
+                    )}
                   </div>
-                  {specs.length > 0 && (
-                    <div className="sm:col-span-2">
-                      <label className="form-label">Specialization</label>
-                      <select value={form.specialization_id} onChange={e => set('specialization_id', e.target.value)} className="form-input">
-                        <option value="">None / Not Applicable</option>
-                        {specs.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="form-label">Batch Start Year *</label>
+                      <select value={form.batch_start_year} onChange={e => set('batch_start_year', e.target.value)} required className="form-input">
+                        <option value="">Select Year</option>
+                        {years.map(y => <option key={y} value={y}>{y}</option>)}
                       </select>
                     </div>
-                  )}
-                  <div>
-                    <label className="form-label">Batch Start Year *</label>
-                    <select value={form.batch_start_year} onChange={e => set('batch_start_year', e.target.value)} required className="form-input">
-                      <option value="">Select Year</option>
-                      {years.map(y => <option key={y} value={y}>{y}</option>)}
-                    </select>
+                    <div>
+                      <label className="form-label">Batch End Year</label>
+                      <input type="text" value={batchEnd || ''} readOnly
+                        placeholder="Auto-calculated" className="form-input bg-gray-50 text-gray-500 cursor-not-allowed" />
+                    </div>
                   </div>
-                  <div>
-                    <label className="form-label">Batch End Year</label>
-                    <input type="text" value={batchEnd || ''} readOnly
-                      placeholder="Auto-calculated" className="form-input bg-gray-50 text-gray-500" />
-                  </div>
-                </div>
 
-                {/* Auto-calculated semester */}
-                {currentSemester && (
-                  <div className="mt-3 bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 text-sm text-blue-800">
-                    📚 Based on your batch year, you are currently in <strong>Semester {currentSemester}</strong>
-                  </div>
-                )}
+                  {/* Smart semester + project type info */}
+                  {msg && (
+                    <div className={`rounded-xl px-4 py-3 text-sm border ${msg.color}`}>
+                      📚 <strong>{msg.text}</strong>
+                      {projectType === 'minor' && (
+                        <p className="text-xs mt-1 opacity-80">Semesters 7–8 (B.Tech part): Minor projects only. Major projects will be available in Sem 9–10.</p>
+                      )}
+                      {projectType === 'major' && (
+                        <p className="text-xs mt-1 opacity-80">Semesters 9–10 (M.Tech part): Major projects only.</p>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Password */}
@@ -219,7 +244,10 @@ export default function StudentRegisterPage() {
               </div>
 
               <button type="submit" disabled={loading} className="btn-primary w-full justify-center py-3 mt-2 disabled:opacity-60">
-                {loading ? <><div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" /> Registering...</> : '🎓 Create Student Account'}
+                {loading
+                  ? <><div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" /> Registering...</>
+                  : '🎓 Create Student Account'
+                }
               </button>
             </form>
           </div>

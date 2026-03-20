@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 
-interface User { name: string; email: string; role: string; campusId: number }
+interface User { name: string; email: string; role: string; campusId: number; designation: string; department: string }
 interface Project { id: number; title: string; student_name: string; project_type: string; batch_start_year: number; batch_end_year: number; status: string; created_at: string; campus_name: string }
 
 export default function FacultyDashboard() {
@@ -12,21 +12,29 @@ export default function FacultyDashboard() {
   const [user, setUser] = useState<User | null>(null)
   const [projects, setProjects] = useState<Project[]>([])
   const [loading, setLoading] = useState(true)
+  const [pendingCount, setPendingCount] = useState(0)
 
   useEffect(() => {
-    // Check session
     fetch('/api/auth/me')
       .then(r => r.ok ? r.json() : Promise.reject())
       .then(data => {
         setUser(data.user)
-        if (data.user.role === 'admin') router.push('/admin/dashboard')
-        // Load projects added by this user (we'll just fetch all for now filtered server-side)
-        return fetch('/api/projects?limit=50')
+        if (data.user.role === 'admin') { router.push('/admin/dashboard'); return }
+        return Promise.all([
+          fetch('/api/projects?limit=50').then(r => r.json()),
+          fetch('/api/guidance-requests').then(r => r.json()),
+        ])
       })
-      .then(r => r.json())
-      .then(data => { setProjects(data.projects || []); setLoading(false) })
-      .catch(() => { router.push('/login') })
-  }, [])
+      .then(results => {
+        if (results) {
+          setProjects(results[0].projects || [])
+          const pending = (results[1].requests || []).filter((r: {status: string}) => r.status === 'pending')
+          setPendingCount(pending.length)
+        }
+        setLoading(false)
+      })
+      .catch(() => router.push('/login'))
+  }, [router])
 
   async function handleLogout() {
     await fetch('/api/auth/logout', { method: 'POST' })
@@ -35,15 +43,14 @@ export default function FacultyDashboard() {
 
   if (loading) return (
     <div className="min-h-screen bg-nfsu-offwhite flex items-center justify-center">
-      <div className="w-8 h-8 border-nfsu-blue border-t-transparent rounded-full animate-spin" style={{ borderWidth: '3px' }} />
+      <div className="w-8 h-8 border-4 border-nfsu-blue border-t-transparent rounded-full animate-spin" />
     </div>
   )
 
   return (
     <div className="min-h-screen bg-nfsu-offwhite flex">
       {/* Sidebar */}
-      <aside className="w-60 bg-white border-r border-gray-200 flex flex-col fixed h-full z-20 hidden md:flex">
-        {/* Logo */}
+      <aside className="w-64 bg-white border-r border-gray-200 flex flex-col fixed h-full z-20 hidden md:flex">
         <div className="p-4 border-b border-gray-100">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 bg-nfsu-navy rounded-lg flex items-center justify-center text-sm text-white">⚖️</div>
@@ -54,13 +61,17 @@ export default function FacultyDashboard() {
           </div>
         </div>
 
-        {/* Nav */}
         <nav className="flex-1 p-3 space-y-0.5">
-          <a href="/faculty/dashboard" className="sidebar-link active">
+          <Link href="/faculty/dashboard" className="sidebar-link active">
             <span>📊</span> Dashboard
-          </a>
-          <Link href="/faculty/guidance" className="sidebar-link">
+          </Link>
+          <Link href="/faculty/guidance" className="sidebar-link relative">
             <span>📬</span> Guidance Requests
+            {pendingCount > 0 && (
+              <span className="ml-auto bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center flex-shrink-0">
+                {pendingCount}
+              </span>
+            )}
           </Link>
           <Link href="/faculty/projects/new" className="sidebar-link">
             <span>➕</span> Add Project
@@ -73,30 +84,42 @@ export default function FacultyDashboard() {
           </Link>
         </nav>
 
-        {/* User info */}
+        {/* User info — full name + designation */}
         <div className="p-3 border-t border-gray-100">
-          <div className="px-3 py-2">
-            <p className="text-sm font-medium text-gray-900 truncate">{user?.name}</p>
-            <p className="text-xs text-gray-400 truncate">{user?.email}</p>
+          <div className="px-3 py-2 bg-nfsu-navy/5 rounded-xl mb-2">
+            <p className="text-sm font-semibold text-nfsu-navy leading-snug">{user?.name}</p>
+            {user?.designation && <p className="text-xs text-gray-500 mt-0.5">{user.designation}</p>}
+            {user?.department && <p className="text-xs text-gray-400 mt-0.5 truncate">{user.department}</p>}
+            <p className="text-xs text-gray-400 truncate mt-0.5">{user?.email}</p>
           </div>
-          <button onClick={handleLogout} className="sidebar-link text-red-500 hover:bg-red-50 w-full mt-1">
+          <button onClick={handleLogout} className="sidebar-link text-red-500 hover:bg-red-50 w-full">
             <span>🚪</span> Sign Out
           </button>
         </div>
       </aside>
 
       {/* Main */}
-      <main className="flex-1 md:ml-60">
+      <main className="flex-1 md:ml-64">
         {/* Top bar */}
         <div className="bg-white border-b border-gray-200 px-6 py-4 sticky top-0 z-10">
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-lg font-heading font-semibold text-nfsu-navy">Faculty Dashboard</h1>
-              <p className="text-xs text-gray-500">Welcome back, {user?.name?.split(' ')[0]}</p>
+              <p className="text-xs text-gray-500">
+                Welcome, <span className="font-medium text-nfsu-navy">{user?.name}</span>
+                {user?.designation && <span className="text-gray-400"> · {user.designation}</span>}
+              </p>
             </div>
-            <Link href="/faculty/projects/new" className="btn-primary text-sm">
-              ➕ Add New Project
-            </Link>
+            <div className="flex items-center gap-3">
+              {pendingCount > 0 && (
+                <Link href="/faculty/guidance" className="flex items-center gap-2 text-sm bg-red-50 text-red-600 border border-red-200 rounded-lg px-3 py-1.5 hover:bg-red-100 transition-colors">
+                  📬 {pendingCount} pending request{pendingCount > 1 ? 's' : ''}
+                </Link>
+              )}
+              <Link href="/faculty/projects/new" className="btn-primary text-sm">
+                ➕ Add New Project
+              </Link>
+            </div>
           </div>
         </div>
 
@@ -104,12 +127,12 @@ export default function FacultyDashboard() {
           {/* Stats */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
             {[
-              { label: 'Total Projects', value: projects.length, icon: '📁', color: 'border-blue-400' },
-              { label: 'Major Projects', value: projects.filter(p => p.project_type === 'major').length, icon: '⭐', color: 'border-amber-400' },
-              { label: 'Minor Projects', value: projects.filter(p => p.project_type === 'minor').length, icon: '📌', color: 'border-nfsu-blue' },
-              { label: 'Published', value: projects.filter(p => p.status === 'published').length, icon: '✅', color: 'border-green-400' },
+              { label: 'Total Projects', value: projects.length, icon: '📁' },
+              { label: 'Major Projects', value: projects.filter(p => p.project_type === 'major').length, icon: '⭐' },
+              { label: 'Minor Projects', value: projects.filter(p => p.project_type === 'minor').length, icon: '📌' },
+              { label: 'Guidance Requests', value: pendingCount, icon: '📬' },
             ].map(s => (
-              <div key={s.label} className={`stat-card bg-white rounded-xl p-4 border-l-4 ${s.color} shadow-sm`} style={{ borderLeftColor: undefined }}>
+              <div key={s.label} className="stat-card">
                 <div className="flex items-start justify-between">
                   <div>
                     <p className="text-2xl font-heading font-bold text-nfsu-navy">{s.value}</p>
@@ -131,9 +154,7 @@ export default function FacultyDashboard() {
               <div className="p-12 text-center">
                 <div className="text-4xl mb-3">📂</div>
                 <p className="text-gray-600">No projects yet</p>
-                <Link href="/faculty/projects/new" className="btn-primary mt-4 inline-flex">
-                  Add Your First Project
-                </Link>
+                <Link href="/faculty/projects/new" className="btn-primary mt-4 inline-flex">Add Your First Project</Link>
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -145,7 +166,7 @@ export default function FacultyDashboard() {
                       <th>Type</th>
                       <th>Batch</th>
                       <th>Status</th>
-                      <th>Date Added</th>
+                      <th>Added</th>
                       <th></th>
                     </tr>
                   </thead>
@@ -154,7 +175,7 @@ export default function FacultyDashboard() {
                       <tr key={p.id}>
                         <td>
                           <Link href={`/project/${p.id}`} className="text-nfsu-blue hover:underline font-medium text-xs">
-                            {p.title.length > 50 ? p.title.slice(0, 50) + '…' : p.title}
+                            {p.title.length > 55 ? p.title.slice(0, 55) + '…' : p.title}
                           </Link>
                         </td>
                         <td className="text-xs">{p.student_name}</td>
@@ -169,13 +190,9 @@ export default function FacultyDashboard() {
                             {p.status}
                           </span>
                         </td>
-                        <td className="text-xs text-gray-400">
-                          {new Date(p.created_at).toLocaleDateString('en-IN')}
-                        </td>
+                        <td className="text-xs text-gray-400">{new Date(p.created_at).toLocaleDateString('en-IN')}</td>
                         <td>
-                          <Link href={`/project/${p.id}`} className="text-xs text-nfsu-blue hover:underline">
-                            View
-                          </Link>
+                          <Link href={`/project/${p.id}`} className="text-xs text-nfsu-blue hover:underline">View</Link>
                         </td>
                       </tr>
                     ))}
