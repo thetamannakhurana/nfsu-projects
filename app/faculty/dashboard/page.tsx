@@ -59,6 +59,9 @@ export default function FacultyDashboard() {
           <a href="/faculty/dashboard" className="sidebar-link active">
             <span>📊</span> Dashboard
           </a>
+          <Link href="/faculty/guidance" className="sidebar-link">
+            <span>📬</span> Guidance Requests
+          </Link>
           <Link href="/faculty/projects/new" className="sidebar-link">
             <span>➕</span> Add Project
           </Link>

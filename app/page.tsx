@@ -39,6 +39,7 @@ export default function HomePage() {
             <div className="flex gap-3 sm:gap-5">
               <Link href="/login" className="hover:text-white transition-colors">Faculty Login</Link>
               <Link href="/admin/login" className="hover:text-white transition-colors">Admin Login</Link>
+              <Link href="/student/login" className="hover:text-white transition-colors">Student Login</Link>
             </div>
           </div>
         </div>
