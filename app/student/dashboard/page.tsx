@@ -81,8 +81,12 @@ export default function StudentDashboard() {
   const currentSem = (() => {
     if (!user?.batch_start_year) return null
     const now = new Date()
-    const monthsElapsed = (now.getFullYear() - user.batch_start_year) * 12 + now.getMonth()
-    return Math.min(Math.max(1, Math.ceil((monthsElapsed + 1) / 6)), 10)
+    const currentYear = now.getFullYear()
+    const currentMonth = now.getMonth() + 1 // 1-12
+    const yearsCompleted = currentYear - user.batch_start_year
+    // Odd sem = July-Dec, Even sem = Jan-May
+    const sem = currentMonth >= 7 ? (yearsCompleted * 2) + 1 : (yearsCompleted * 2)
+    return Math.min(Math.max(1, sem), 10)
   })()
 
   async function handleLogout() {
