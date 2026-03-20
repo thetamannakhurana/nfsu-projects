@@ -1,12 +1,9 @@
-// Save as: app/student/login/page.tsx
 'use client'
-import { useState } from 'react'
+import { useState, Suspense } from 'react'
 import Link from 'next/link'
-import { useRouter, useSearchParams } from 'next/navigation'
-import { Suspense } from 'react'
+import { useSearchParams } from 'next/navigation'
 
 function LoginForm() {
-  const router = useRouter()
   const searchParams = useSearchParams()
   const registered = searchParams.get('registered')
   const [email, setEmail] = useState('')
@@ -19,6 +16,7 @@ function LoginForm() {
     e.preventDefault()
     setError('')
     setLoading(true)
+
     try {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
@@ -26,13 +24,23 @@ function LoginForm() {
         body: JSON.stringify({ email, password }),
       })
       const data = await res.json()
-      if (!res.ok) { setError(data.error || 'Login failed'); setLoading(false); return }
+
+      if (!res.ok) {
+        setError(data.error || 'Login failed')
+        setLoading(false)
+        return
+      }
+
       if (data.user.role !== 'student') {
         setError('This portal is for students only. Use Faculty Login instead.')
         setLoading(false)
         return
       }
-      window.location.href = '/student/dashboard'    } catch {
+
+      // Hard redirect — avoids Next.js router loop
+      window.location.href = '/student/dashboard'
+
+    } catch {
       setError('Network error. Please try again.')
       setLoading(false)
     }
@@ -58,9 +66,10 @@ function LoginForm() {
 
       <div className="flex-1 flex items-center justify-center p-6">
         <div className="w-full max-w-md">
+
           {registered && (
             <div className="bg-green-50 border border-green-200 text-green-700 text-sm rounded-xl px-4 py-3 mb-4 text-center">
-              ✅ Account created successfully! Please login.
+              ✅ Account created! Please sign in.
             </div>
           )}
 
@@ -72,19 +81,25 @@ function LoginForm() {
             </div>
 
             <form onSubmit={handleLogin} className="p-8">
-              {error && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3 mb-5">⚠️ {error}</div>}
+              {error && (
+                <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3 mb-5">
+                  ⚠️ {error}
+                </div>
+              )}
 
               <div className="mb-5">
                 <label className="form-label">NFSU Email</label>
                 <input type="email" value={email} onChange={e => setEmail(e.target.value)}
-                  required placeholder="yourname@nfsu.ac.in" className="form-input" />
+                  required placeholder="yourname@nfsu.ac.in" className="form-input" autoComplete="email" />
               </div>
+
               <div className="mb-6">
                 <label className="form-label">Password</label>
                 <div className="relative">
                   <input type={showPass ? 'text' : 'password'} value={password}
                     onChange={e => setPassword(e.target.value)} required
-                    placeholder="Enter your password" className="form-input pr-10" />
+                    placeholder="Enter your password" className="form-input pr-10"
+                    autoComplete="current-password" />
                   <button type="button" onClick={() => setShowPass(!showPass)}
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-sm">
                     {showPass ? '🙈' : '👁️'}
@@ -92,8 +107,12 @@ function LoginForm() {
                 </div>
               </div>
 
-              <button type="submit" disabled={loading} className="btn-primary w-full justify-center py-3 disabled:opacity-60">
-                {loading ? <><div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" /> Signing in...</> : 'Sign In'}
+              <button type="submit" disabled={loading}
+                className="btn-primary w-full justify-center py-3 disabled:opacity-60">
+                {loading
+                  ? <><div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" /> Signing in...</>
+                  : 'Sign In'
+                }
               </button>
 
               <p className="text-center text-sm text-gray-500 mt-4">
@@ -102,8 +121,11 @@ function LoginForm() {
               </p>
             </form>
           </div>
+
           <div className="text-center mt-4">
-            <Link href="/" className="text-sm text-gray-400 hover:text-nfsu-blue transition-colors">← Back to Projects Database</Link>
+            <Link href="/" className="text-sm text-gray-400 hover:text-nfsu-blue transition-colors">
+              ← Back to Projects Database
+            </Link>
           </div>
         </div>
       </div>
@@ -112,5 +134,9 @@ function LoginForm() {
 }
 
 export default function StudentLoginPage() {
-  return <Suspense><LoginForm /></Suspense>
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><div className="w-8 h-8 border-4 border-nfsu-blue border-t-transparent rounded-full animate-spin" /></div>}>
+      <LoginForm />
+    </Suspense>
+  )
 }
