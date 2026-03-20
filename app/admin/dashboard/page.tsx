@@ -112,8 +112,8 @@ export default function AdminDashboard() {
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
             {[
               { label: 'Total Projects', value: stats?.totalProjects || 0, icon: '📁', sub: 'All statuses' },
-              { label: 'Major Projects', value: majorCount, icon: '⭐', sub: 'Semester 7-8' },
-              { label: 'Minor Projects', value: minorCount, icon: '📌', sub: 'Semester 5-6' },
+              { label: 'Major Projects', value: majorCount, icon: '⭐' },
+              { label: 'Minor Projects', value: minorCount, icon: '📌' },
               { label: 'Total Users', value: stats?.users.total || 0, icon: '👥', sub: `${adminCount} admin · ${facultyCount} faculty` },
             ].map(s => (
               <div key={s.label} className="stat-card bg-white rounded-xl shadow-sm">
