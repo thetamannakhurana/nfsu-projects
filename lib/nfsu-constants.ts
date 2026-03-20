@@ -7,32 +7,16 @@ export const NFSU_DEPARTMENTS = [
   'School of Criminal Justice & Criminology',
   'School of Law, Justice & Governance',
   'School of Behavioural Sciences',
-  'School of AI & Emerging Technologies',
-  'Department of Computer Science & Engineering',
-  'Department of Electronics & Communication Engineering',
-  'Department of Information Technology',
-  'Department of Cyber Security',
-  'Department of Digital Forensics',
-  'Department of Forensic Science',
-  'Department of Forensic Accounting & Financial Crimes',
-  'Department of Criminology & Criminal Justice',
-  'Department of Forensic Psychology',
-  'Department of Forensic Medicine & Toxicology',
-  'Department of DNA & Serology',
-  'Department of Document Examination',
-  'Department of Ballistics & Explosives',
-  'Department of Cyber Laws & Policy',
+  'School of Management Studies'
 ]
 
 export const NFSU_DESIGNATIONS = [
+  'Professor Of Practice',
   'Professor',
   'Associate Professor',
   'Assistant Professor',
-  'Senior Assistant Professor',
-  'Visiting Professor',
-  'Adjunct Professor',
   'Research Scientist',
-  'Lab Instructor',
+  'Scientific Assistant',
   'Teaching Assistant',
 ]
 
