@@ -48,9 +48,9 @@ export const NFSU_COURSES = [
   // MA (2 years)
   { name: 'M.A. Criminology', short: 'MA Criminology', duration: 2, totalSem: 4 },
   { name: 'M.A. Forensic Psychology', short: 'MA Forensic Psych', duration: 2, totalSem: 4 },
-  // Clinical (2 years)
-  { name: 'M.A. Criminology', short: 'M.Sc. Clinal Psychology', duration: 2, totalSem: 4 },
-  { name: 'M.A. Criminology', short: 'MPhil. Clinal Psychology', duration: 2, totalSem: 4 },
+  // Clinical Psychology (2 years)
+  { name: 'M.Sc. Clinical Psychology', short: 'M.Sc. Clinical Psychology', duration: 2, totalSem: 4 },
+  { name: 'M.Phil. Clinical Psychology', short: 'MPhil. Clinical Psychology', duration: 2, totalSem: 4 },
   // PhD (3 years)
   { name: 'Ph.D.', short: 'PhD', duration: 3, totalSem: 6 },
 ]

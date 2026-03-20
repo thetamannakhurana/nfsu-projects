@@ -148,11 +148,6 @@ export default function StudentRegisterPage() {
                     <label className="form-label">Course / Program *</label>
                     <select value={form.course_name} onChange={e => set('course_name', e.target.value)} required className="form-input">
                       <option value="">Select your course</option>
-                      <optgroup label="B.Tech (4 Years)">
-                        {NFSU_COURSES.filter(c => c.duration === 4).map(c => (
-                          <option key={c.name} value={c.name}>{c.name}</option>
-                        ))}
-                      </optgroup>
                       <optgroup label="B.Tech-M.Tech Integrated (5 Years)">
                         {NFSU_COURSES.filter(c => c.duration === 5 && c.name.includes('B.Tech-M.Tech')).map(c => (
                           <option key={c.name} value={c.name}>{c.name}</option>
@@ -180,6 +175,11 @@ export default function StudentRegisterPage() {
                       </optgroup>
                       <optgroup label="M.A (2 Years)">
                         {NFSU_COURSES.filter(c => c.name.startsWith('M.A')).map(c => (
+                          <option key={c.name} value={c.name}>{c.name}</option>
+                        ))}
+                      </optgroup>
+                      <optgroup label="Clinical Psychology (2 Years)">
+                        {NFSU_COURSES.filter(c => c.duration === 2 && c.name.includes('Clinical Psychology')).map(c => (
                           <option key={c.name} value={c.name}>{c.name}</option>
                         ))}
                       </optgroup>
