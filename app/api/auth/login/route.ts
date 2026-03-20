@@ -1,3 +1,4 @@
+// Save as: app/api/auth/login/route.ts  (REPLACE existing file)
 import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
 import { query } from '@/lib/db'
@@ -12,8 +13,16 @@ export async function POST(request: NextRequest) {
     }
 
     const result = await query(
-      'SELECT id, name, email, password_hash, role, campus_id, designation, is_active FROM users WHERE email = $1',
-      [email.toLowerCase().trim()]
+      `SELECT u.*,
+              c.name as campus_name,
+              co.name as course_name,
+              s.name as spec_name
+       FROM users u
+       LEFT JOIN campuses c ON u.campus_id = c.id
+       LEFT JOIN courses co ON u.course_id = co.id
+       LEFT JOIN specializations s ON u.specialization_id = s.id
+       WHERE u.email = $1 AND u.is_active = true`,
+      [email.toLowerCase()]
     )
 
     if (result.rows.length === 0) {
@@ -21,13 +30,9 @@ export async function POST(request: NextRequest) {
     }
 
     const user = result.rows[0]
+    const validPassword = await bcrypt.compare(password, user.password_hash)
 
-    if (!user.is_active) {
-      return NextResponse.json({ error: 'Account is deactivated. Contact administrator.' }, { status: 403 })
-    }
-
-    const passwordMatch = await bcrypt.compare(password, user.password_hash)
-    if (!passwordMatch) {
+    if (!validPassword) {
       return NextResponse.json({ error: 'Invalid email or password' }, { status: 401 })
     }
 
@@ -37,20 +42,28 @@ export async function POST(request: NextRequest) {
     const token = await signToken({
       userId: user.id,
       email: user.email,
-      name: user.name,
       role: user.role,
+      name: user.name,
       campusId: user.campus_id,
     })
 
     const response = NextResponse.json({
-      success: true,
       user: {
         id: user.id,
         name: user.name,
         email: user.email,
         role: user.role,
-        campusId: user.campus_id,
+        campus_id: user.campus_id,
+        campus_name: user.campus_name,
+        course_id: user.course_id,
+        course_name: user.course_name,
+        specialization_id: user.specialization_id,
+        spec_name: user.spec_name,
+        batch_start_year: user.batch_start_year,
+        batch_end_year: user.batch_end_year,
+        enrollment_number: user.enrollment_number,
         designation: user.designation,
+        department: user.department,
       }
     })
 
@@ -59,6 +72,6 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error('Login error:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    return NextResponse.json({ error: 'Login failed. Please try again.' }, { status: 500 })
   }
 }

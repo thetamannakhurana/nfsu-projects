@@ -9,7 +9,7 @@ export interface JWTPayload {
   userId: number
   email: string
   name: string
-  role: 'admin' | 'faculty'
+  role: 'admin' | 'faculty' | 'student'
   campusId?: number
 }
 
