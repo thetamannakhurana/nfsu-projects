@@ -1,4 +1,4 @@
-// app/api/guidance-requests/route.ts
+// Save as: app/api/guidance-requests/route.ts  (REPLACE)
 import { NextRequest, NextResponse } from 'next/server'
 import { query } from '@/lib/db'
 import { requireAuth } from '@/lib/auth'
@@ -10,30 +10,22 @@ export async function POST(request: NextRequest) {
     if (session.role !== 'student') return NextResponse.json({ error: 'Only students can send guidance requests' }, { status: 403 })
 
     const { faculty_id, project_title, project_domain, description, project_type } = await request.json()
+    if (!faculty_id || !project_title) return NextResponse.json({ error: 'Faculty and project title are required' }, { status: 400 })
 
-    if (!faculty_id || !project_title) {
-      return NextResponse.json({ error: 'Faculty and project title are required' }, { status: 400 })
-    }
-
-    const facultyCheck = await query('SELECT id, name FROM users WHERE id=$1 AND role=$2', [faculty_id, 'faculty'])
-    if (facultyCheck.rows.length === 0) {
-      return NextResponse.json({ error: 'Selected faculty not found' }, { status: 404 })
-    }
+    const facultyCheck = await query('SELECT id FROM users WHERE id=$1 AND role=$2', [faculty_id, 'faculty'])
+    if (facultyCheck.rows.length === 0) return NextResponse.json({ error: 'Selected faculty not found' }, { status: 404 })
 
     const existing = await query(
       `SELECT id FROM guidance_requests WHERE student_id=$1 AND faculty_id=$2 AND status='pending'`,
       [session.userId, faculty_id]
     )
-    if (existing.rows.length > 0) {
-      return NextResponse.json({ error: 'You already have a pending request with this faculty' }, { status: 409 })
-    }
+    if (existing.rows.length > 0) return NextResponse.json({ error: 'You already have a pending request with this faculty' }, { status: 409 })
 
     const result = await query(
       `INSERT INTO guidance_requests (student_id, faculty_id, project_title, project_domain, description, project_type)
        VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
       [session.userId, faculty_id, project_title, project_domain, description, project_type || 'minor']
     )
-
     return NextResponse.json({ request: result.rows[0] }, { status: 201 })
   } catch (error) {
     console.error('Guidance request error:', error)
@@ -49,7 +41,8 @@ export async function GET(request: NextRequest) {
     let result
     if (session.role === 'student') {
       result = await query(
-        `SELECT gr.*, u.name as faculty_name, u.designation as faculty_designation, u.department as faculty_department
+        `SELECT gr.*,
+                u.name as faculty_name, u.designation as faculty_designation, u.department as faculty_department
          FROM guidance_requests gr
          JOIN users u ON gr.faculty_id = u.id
          WHERE gr.student_id = $1

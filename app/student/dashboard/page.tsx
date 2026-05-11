@@ -1,19 +1,20 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import ChangePasswordModal from '@/components/ChangePasswordModal'
 
 interface User {
   id: number; name: string; email: string; role: string
   campus_name: string; course_name: string; spec_name: string
-  batch_start_year: number; batch_end_year: number
-  enrollment_number: string
+  batch_start_year: number; batch_end_year: number; enrollment_number: string
 }
-interface Faculty { id: number; name: string; designation: string; department: string; campus_name: string }
+interface Faculty { id: number; name: string; designation: string; department: string }
 interface GuidanceRequest {
   id: number; project_title: string; project_domain: string; project_type: string
   status: string; faculty_name: string; faculty_designation: string
   faculty_note: string; created_at: string
+  report_url: string; report_filename: string; report_uploaded_at: string
+  plagiarism_score: number; plagiarism_remarks: string; plagiarism_checked_at: string
 }
 
 const STATUS_STYLE: Record<string, string> = {
@@ -25,6 +26,18 @@ const STATUS_STYLE: Record<string, string> = {
 }
 const STATUS_ICON: Record<string, string> = {
   accepted: '✅', rejected: '❌', held: '⏸️', cancelled: '🚫', pending: '⏳'
+}
+
+function PlagiarismBadge({ score }: { score: number }) {
+  const color = score <= 20 ? 'bg-green-50 text-green-700 border-green-200'
+    : score <= 40 ? 'bg-yellow-50 text-yellow-700 border-yellow-200'
+    : 'bg-red-50 text-red-700 border-red-200'
+  const label = score <= 20 ? 'Low' : score <= 40 ? 'Moderate' : 'High'
+  return (
+    <span className={`badge ${color}`}>
+      📊 {score}% Plagiarism — {label}
+    </span>
+  )
 }
 
 export default function StudentDashboard() {
@@ -39,6 +52,9 @@ export default function StudentDashboard() {
   const [submitting, setSubmitting] = useState(false)
   const [formError, setFormError] = useState('')
   const [formSuccess, setFormSuccess] = useState('')
+  const [uploadingId, setUploadingId] = useState<number | null>(null)
+  const [uploadError, setUploadError] = useState<Record<number, string>>({})
+  const fileInputRefs = useRef<Record<number, HTMLInputElement | null>>({})
 
   const [form, setForm] = useState({
     faculty_id: '', project_title: '', project_domain: '',
@@ -53,22 +69,14 @@ export default function StudentDashboard() {
         if (!meRes.ok) { if (mounted) setAuthError('Please login to continue'); return }
         const meData = await meRes.json()
         if (!meData.user || meData.user.role !== 'student') {
-          if (mounted) setAuthError('Access denied. Student accounts only.')
-          return
+          if (mounted) setAuthError('Access denied.'); return
         }
         if (mounted) setUser(meData.user)
-        const [facultyRes, reqRes] = await Promise.all([
-          fetch('/api/faculty'),
-          fetch('/api/guidance-requests'),
-        ])
-        if (facultyRes.ok) { const d = await facultyRes.json(); if (mounted) setFaculty(d.faculty || []) }
-        if (reqRes.ok) { const d = await reqRes.json(); if (mounted) setRequests(d.requests || []) }
-      } catch (err) {
-        console.error('Dashboard load error:', err)
-        if (mounted) setAuthError('Something went wrong. Please refresh.')
-      } finally {
-        if (mounted) setLoading(false)
-      }
+        const [fRes, rRes] = await Promise.all([fetch('/api/faculty'), fetch('/api/guidance-requests')])
+        if (fRes.ok) { const d = await fRes.json(); if (mounted) setFaculty(d.faculty || []) }
+        if (rRes.ok) { const d = await rRes.json(); if (mounted) setRequests(d.requests || []) }
+      } catch { if (mounted) setAuthError('Something went wrong. Please refresh.') }
+      finally { if (mounted) setLoading(false) }
     }
     loadData()
     return () => { mounted = false }
@@ -79,13 +87,11 @@ export default function StudentDashboard() {
     const now = new Date()
     const yearsCompleted = now.getFullYear() - user.batch_start_year
     const sem = (now.getMonth() + 1) >= 7 ? yearsCompleted * 2 + 1 : yearsCompleted * 2
-    const totalSem = user.batch_end_year && user.batch_start_year
-      ? (user.batch_end_year - user.batch_start_year) * 2 : 10
+    const totalSem = user.batch_end_year && user.batch_start_year ? (user.batch_end_year - user.batch_start_year) * 2 : 10
     return Math.min(Math.max(1, sem), totalSem)
   })()
 
-  const totalSem = user?.batch_end_year && user?.batch_start_year
-    ? (user.batch_end_year - user.batch_start_year) * 2 : 10
+  const totalSem = user?.batch_end_year && user?.batch_start_year ? (user.batch_end_year - user.batch_start_year) * 2 : 10
 
   const allowedProjectType: 'major' | 'minor' | 'both' = (() => {
     if (!currentSem) return 'both'
@@ -117,15 +123,34 @@ export default function StudentDashboard() {
       if (!res.ok) { setFormError(data.error || 'Failed to send'); setSubmitting(false); return }
       setFormSuccess('Request sent successfully!')
       const sel = faculty.find(f => f.id === parseInt(form.faculty_id))
-      setRequests(prev => [...prev, {
-        ...data.request,
-        faculty_name: sel?.name || '',
-        faculty_designation: sel?.designation || ''
-      }])
+      setRequests(prev => [...prev, { ...data.request, faculty_name: sel?.name || '', faculty_designation: sel?.designation || '' }])
       setForm(f => ({ ...f, faculty_id: '', project_title: '', project_domain: '', description: '' }))
       setTimeout(() => { setShowForm(false); setFormSuccess('') }, 2000)
-    } catch { setFormError('Failed to send request. Try again.') }
+    } catch { setFormError('Failed to send. Try again.') }
     setSubmitting(false)
+  }
+
+  async function uploadReport(reqId: number, file: File) {
+    setUploadingId(reqId)
+    setUploadError(prev => ({ ...prev, [reqId]: '' }))
+    try {
+      const fd = new FormData()
+      fd.append('report', file)
+      const res = await fetch(`/api/guidance-requests/${reqId}/report`, { method: 'POST', body: fd })
+      const data = await res.json()
+      if (!res.ok) {
+        setUploadError(prev => ({ ...prev, [reqId]: data.error || 'Upload failed' }))
+      } else {
+        // Update local state
+        setRequests(prev => prev.map(r => r.id === reqId
+          ? { ...r, report_url: data.url, report_filename: file.name, report_uploaded_at: new Date().toISOString() }
+          : r
+        ))
+      }
+    } catch {
+      setUploadError(prev => ({ ...prev, [reqId]: 'Upload failed. Try again.' }))
+    }
+    setUploadingId(null)
   }
 
   const setF = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
@@ -144,7 +169,7 @@ export default function StudentDashboard() {
       <div className="text-center bg-white rounded-2xl border border-gray-200 p-8 max-w-sm w-full">
         <div className="text-4xl mb-3">🔒</div>
         <h2 className="font-heading font-bold text-nfsu-navy text-lg mb-2">Session Expired</h2>
-        <p className="text-gray-500 text-sm mb-5">{authError || 'Please login to access your dashboard.'}</p>
+        <p className="text-gray-500 text-sm mb-5">{authError || 'Please login.'}</p>
         <a href="/login" className="btn-primary w-full justify-center">Go to Login</a>
       </div>
     </div>
@@ -153,22 +178,11 @@ export default function StudentDashboard() {
   const SidebarContent = ({ onNav }: { onNav?: () => void }) => (
     <>
       <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto">
-        <Link href="/student/dashboard" onClick={onNav}
-          className="sidebar-link active">
-          <span>📊</span> My Dashboard
-        </Link>
-        <Link href="/" onClick={onNav} className="sidebar-link">
-          <span>🏛️</span> Browse Campuses
-        </Link>
-        <Link href="/search" onClick={onNav} className="sidebar-link">
-          <span>🔍</span> Search Projects
-        </Link>
-        <Link href="/search?type=major" onClick={onNav} className="sidebar-link">
-          <span>⭐</span> Major Projects
-        </Link>
-        <Link href="/search?type=minor" onClick={onNav} className="sidebar-link">
-          <span>📌</span> Minor Projects
-        </Link>
+        <Link href="/student/dashboard" onClick={onNav} className="sidebar-link active"><span>📊</span> My Dashboard</Link>
+        <Link href="/" onClick={onNav} className="sidebar-link"><span>🏛️</span> Browse Campuses</Link>
+        <Link href="/search" onClick={onNav} className="sidebar-link"><span>🔍</span> Search Projects</Link>
+        <Link href="/search?type=major" onClick={onNav} className="sidebar-link"><span>⭐</span> Major Projects</Link>
+        <Link href="/search?type=minor" onClick={onNav} className="sidebar-link"><span>📌</span> Minor Projects</Link>
       </nav>
       <div className="p-3 border-t border-gray-100">
         <div className="px-3 py-2 bg-nfsu-navy/5 rounded-xl mb-2">
@@ -186,9 +200,7 @@ export default function StudentDashboard() {
         </button>
         <p className="text-xs text-center text-gray-300 mt-3">
           <a href="https://tamannakhurana.vercel.app/" target="_blank" rel="noopener noreferrer"
-            className="hover:underline" style={{ color: '#C8972A' }}>
-            Tamanna Khurana
-          </a>
+            className="hover:underline" style={{ color: '#C8972A' }}>Tamanna Khurana</a>
         </p>
       </div>
     </>
@@ -198,13 +210,13 @@ export default function StudentDashboard() {
     <div className="min-h-screen bg-nfsu-offwhite flex">
       {showChangePassword && <ChangePasswordModal onClose={() => setShowChangePassword(false)} />}
 
-      {/* Sidebar — desktop */}
+      {/* Sidebar desktop */}
       <aside className="hidden md:flex flex-col w-60 bg-white border-r border-gray-200 fixed h-full z-20">
         <div className="p-4 border-b border-gray-100">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 bg-nfsu-navy rounded-lg flex items-center justify-center text-sm">⚖️</div>
             <div>
-              <div className="text-xs text-gray-400 leading-none">NFSU</div>
+              <div className="text-xs text-gray-400">NFSU</div>
               <div className="text-sm font-semibold text-nfsu-navy">Projects DB</div>
             </div>
           </div>
@@ -218,41 +230,28 @@ export default function StudentDashboard() {
           <div className="fixed inset-0 bg-black/50 z-30 md:hidden" onClick={() => setSidebarOpen(false)} />
           <aside className="fixed left-0 top-0 h-full w-60 bg-white z-40 md:hidden flex flex-col">
             <div className="p-4 border-b border-gray-100 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div className="w-7 h-7 bg-nfsu-navy rounded-lg flex items-center justify-center text-xs">⚖️</div>
-                <span className="text-sm font-semibold text-nfsu-navy">NFSU Projects</span>
-              </div>
-              <button onClick={() => setSidebarOpen(false)} className="text-gray-400 hover:text-gray-600">✕</button>
+              <span className="text-sm font-semibold text-nfsu-navy">NFSU Projects</span>
+              <button onClick={() => setSidebarOpen(false)} className="text-gray-400">✕</button>
             </div>
             <SidebarContent onNav={() => setSidebarOpen(false)} />
           </aside>
         </>
       )}
 
-      {/* Main */}
       <div className="flex-1 md:ml-60 flex flex-col">
-        {/* Header */}
         <header className="nfsu-header-bg text-white">
           <div className="px-4 sm:px-6 py-4 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <button onClick={() => setSidebarOpen(true)}
-                className="md:hidden w-9 h-9 bg-white/10 rounded-lg flex items-center justify-center text-white flex-shrink-0">
-                ☰
-              </button>
+                className="md:hidden w-9 h-9 bg-white/10 rounded-lg flex items-center justify-center flex-shrink-0">☰</button>
               <div>
                 <div className="text-xs text-white/60">NFSU Projects Database</div>
                 <div className="text-sm font-semibold">Student Portal</div>
               </div>
             </div>
             <div className="flex items-center gap-3">
-              <button onClick={() => setShowChangePassword(true)}
-                className="text-white/60 text-sm hover:text-white transition-colors hidden sm:block">
-                🔐 Change Password
-              </button>
-              <button onClick={handleLogout}
-                className="text-white/60 text-sm hover:text-white transition-colors">
-                🚪 Logout
-              </button>
+              <button onClick={() => setShowChangePassword(true)} className="text-white/60 text-sm hover:text-white hidden sm:block">🔐 Change Password</button>
+              <button onClick={handleLogout} className="text-white/60 text-sm hover:text-white">🚪 Logout</button>
             </div>
           </div>
           <div className="gold-line" />
@@ -265,33 +264,20 @@ export default function StudentDashboard() {
             <div className="flex items-start gap-4">
               <div className="w-14 h-14 bg-nfsu-navy rounded-2xl flex items-center justify-center text-2xl flex-shrink-0">🎓</div>
               <div className="flex-1 min-w-0">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <h1 className="text-xl font-heading font-bold text-nfsu-navy">Welcome, {user.name.split(' ')[0]}!</h1>
-                    <p className="text-gray-500 text-sm truncate">{user.email}</p>
-                  </div>
-                  <button onClick={() => setShowChangePassword(true)}
-                    className="text-xs text-nfsu-blue hover:underline sm:hidden flex-shrink-0 ml-2">
-                    🔐 Change Password
-                  </button>
-                </div>
+                <h1 className="text-xl font-heading font-bold text-nfsu-navy">Welcome, {user.name.split(' ')[0]}!</h1>
+                <p className="text-gray-500 text-sm">{user.email}</p>
                 <div className="flex flex-wrap gap-2 mt-3">
                   {user.course_name && <span className="badge bg-blue-50 text-blue-700 border-blue-200">{user.course_name}</span>}
-                  {user.spec_name && <span className="badge bg-purple-50 text-purple-700 border-purple-200">{user.spec_name}</span>}
                   {user.campus_name && <span className="badge bg-gray-50 text-gray-600 border-gray-200">📍 {user.campus_name}</span>}
-                  {currentSem && (
-                    <span className="badge bg-amber-50 text-amber-700 border-amber-200">
-                      📚 Semester {currentSem} · {currentSem % 2 === 1 ? 'Jul–Dec' : 'Jan–May'}
-                    </span>
-                  )}
+                  {currentSem && <span className="badge bg-amber-50 text-amber-700 border-amber-200">📚 Sem {currentSem} · {currentSem % 2 === 1 ? 'Jul–Dec' : 'Jan–May'}</span>}
                 </div>
               </div>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-5 pt-5 border-t border-gray-100">
               <div><p className="text-xs text-gray-400">Enrollment</p><p className="text-sm font-medium text-gray-800 mt-0.5">{user.enrollment_number || '—'}</p></div>
               <div><p className="text-xs text-gray-400">Batch</p><p className="text-sm font-medium text-gray-800 mt-0.5">{user.batch_start_year ? `${user.batch_start_year}–${user.batch_end_year}` : '—'}</p></div>
-              <div><p className="text-xs text-gray-400">Current Semester</p><p className="text-sm font-medium text-gray-800 mt-0.5">{currentSem ? `Sem ${currentSem}` : '—'}</p></div>
-              <div><p className="text-xs text-gray-400">Requests Sent</p><p className="text-sm font-medium text-gray-800 mt-0.5">{requests.length}</p></div>
+              <div><p className="text-xs text-gray-400">Semester</p><p className="text-sm font-medium text-gray-800 mt-0.5">{currentSem ? `Sem ${currentSem}` : '—'}</p></div>
+              <div><p className="text-xs text-gray-400">Requests</p><p className="text-sm font-medium text-gray-800 mt-0.5">{requests.length}</p></div>
             </div>
 
             {currentSem && allowedProjectType !== 'both' && (
@@ -299,29 +285,24 @@ export default function StudentDashboard() {
                 <span>{allowedProjectType === 'minor' ? '📌' : '⭐'}</span>
                 <div>
                   <strong>{allowedProjectType === 'minor' ? 'Minor Project semester' : 'Major Project semester'}</strong>
-                  {allowedProjectType === 'minor' && totalSem === 10 && <p className="text-xs mt-0.5 opacity-80">Sem 7–8 are for Minor projects. Major projects start from Semester 9 (M.Tech part).</p>}
-                  {allowedProjectType === 'major' && totalSem === 10 && <p className="text-xs mt-0.5 opacity-80">Sem 9–10 are for Major projects (M.Tech part).</p>}
-                  {totalSem === 4 && <p className="text-xs mt-0.5 opacity-80">{allowedProjectType === 'minor' ? 'Sem 1–2: Minor projects.' : 'Sem 3–4: Major projects.'}</p>}
+                  {allowedProjectType === 'minor' && totalSem === 10 && <p className="text-xs mt-0.5 opacity-80">Sem 7–8: Minor projects only. Major from Sem 9.</p>}
+                  {allowedProjectType === 'major' && totalSem === 10 && <p className="text-xs mt-0.5 opacity-80">Sem 9–10: Major projects (M.Tech part).</p>}
                 </div>
               </div>
             )}
 
-            {/* Quick browse links */}
+            {/* Quick browse */}
             <div className="mt-4 pt-4 border-t border-gray-100 grid grid-cols-3 gap-2">
-              <Link href="/" className="flex flex-col items-center gap-1 py-3 px-2 bg-gray-50 rounded-xl border border-gray-100 hover:border-nfsu-gold/40 hover:bg-amber-50/30 transition-all text-center">
-                <span className="text-xl">🏛️</span>
-                <span className="text-xs font-medium text-nfsu-navy">Campuses</span>
+              <Link href="/" className="flex flex-col items-center gap-1 py-3 bg-gray-50 rounded-xl border border-gray-100 hover:border-nfsu-gold/40 transition-all text-center">
+                <span className="text-xl">🏛️</span><span className="text-xs font-medium text-nfsu-navy">Campuses</span>
               </Link>
-              <Link href="/search" className="flex flex-col items-center gap-1 py-3 px-2 bg-gray-50 rounded-xl border border-gray-100 hover:border-nfsu-blue/40 hover:bg-blue-50/30 transition-all text-center">
-                <span className="text-xl">🔍</span>
-                <span className="text-xs font-medium text-nfsu-navy">All Projects</span>
+              <Link href="/search" className="flex flex-col items-center gap-1 py-3 bg-gray-50 rounded-xl border border-gray-100 hover:border-nfsu-blue/40 transition-all text-center">
+                <span className="text-xl">🔍</span><span className="text-xs font-medium text-nfsu-navy">All Projects</span>
               </Link>
               <Link href={`/search?type=${allowedProjectType === 'both' ? 'minor' : allowedProjectType}`}
-                className="flex flex-col items-center gap-1 py-3 px-2 bg-gray-50 rounded-xl border border-gray-100 hover:border-nfsu-blue/40 hover:bg-blue-50/30 transition-all text-center">
+                className="flex flex-col items-center gap-1 py-3 bg-gray-50 rounded-xl border border-gray-100 hover:border-nfsu-blue/40 transition-all text-center">
                 <span className="text-xl">{allowedProjectType === 'major' ? '⭐' : '📌'}</span>
-                <span className="text-xs font-medium text-nfsu-navy">
-                  {allowedProjectType === 'major' ? 'Major' : 'Minor'} Projects
-                </span>
+                <span className="text-xs font-medium text-nfsu-navy">{allowedProjectType === 'major' ? 'Major' : 'Minor'} Projects</span>
               </Link>
             </div>
           </div>
@@ -331,7 +312,7 @@ export default function StudentDashboard() {
             <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between flex-wrap gap-3">
               <div>
                 <h2 className="font-heading font-semibold text-nfsu-navy">Project Guidance Requests</h2>
-                <p className="text-xs text-gray-400 mt-0.5">Send a request to a faculty member for project guidance</p>
+                <p className="text-xs text-gray-400 mt-0.5">Send requests and upload your project report for plagiarism check</p>
               </div>
               <button onClick={() => setShowForm(!showForm)} className="btn-primary text-sm px-4 py-2">
                 {showForm ? '✕ Cancel' : '+ New Request'}
@@ -347,15 +328,8 @@ export default function StudentDashboard() {
                     <label className="form-label">Select Faculty Guide *</label>
                     <select value={form.faculty_id} onChange={e => setF('faculty_id', e.target.value)} required className="form-input">
                       <option value="">— Choose a faculty member —</option>
-                      {faculty.length === 0
-                        ? <option disabled>No faculty available yet</option>
-                        : faculty.map(f => (
-                          <option key={f.id} value={f.id}>
-                            {f.name}{f.designation ? ` (${f.designation})` : ''}{f.department ? ` — ${f.department}` : ''}
-                          </option>
-                        ))}
+                      {faculty.map(f => <option key={f.id} value={f.id}>{f.name}{f.designation ? ` (${f.designation})` : ''}</option>)}
                     </select>
-                    {faculty.length === 0 && <p className="text-xs text-amber-600 mt-1">⚠️ No faculty added yet.</p>}
                   </div>
                   <div className="sm:col-span-2">
                     <label className="form-label">Project Title *</label>
@@ -365,18 +339,14 @@ export default function StudentDashboard() {
                   <div>
                     <label className="form-label">Domain / Area</label>
                     <input type="text" value={form.project_domain} onChange={e => setF('project_domain', e.target.value)}
-                      placeholder="e.g., Cyber Security, ML, Forensics" className="form-input" />
+                      placeholder="e.g., Cyber Security, ML" className="form-input" />
                   </div>
                   <div>
                     <label className="form-label">Project Type</label>
                     {allowedProjectType === 'minor' ? (
-                      <div className="form-input bg-blue-50 border-blue-200 text-blue-700 flex items-center gap-2 cursor-not-allowed">
-                        📌 Minor Project <span className="text-xs opacity-70">(Sem {currentSem} — minor only)</span>
-                      </div>
+                      <div className="form-input bg-blue-50 border-blue-200 text-blue-700 cursor-not-allowed">📌 Minor Project (Sem {currentSem})</div>
                     ) : allowedProjectType === 'major' ? (
-                      <div className="form-input bg-amber-50 border-amber-200 text-amber-700 flex items-center gap-2 cursor-not-allowed">
-                        ⭐ Major Project <span className="text-xs opacity-70">(Sem {currentSem} — major only)</span>
-                      </div>
+                      <div className="form-input bg-amber-50 border-amber-200 text-amber-700 cursor-not-allowed">⭐ Major Project (Sem {currentSem})</div>
                     ) : (
                       <select value={form.project_type} onChange={e => setF('project_type', e.target.value)} className="form-input">
                         <option value="minor">📌 Minor Project</option>
@@ -387,8 +357,7 @@ export default function StudentDashboard() {
                   <div className="sm:col-span-2">
                     <label className="form-label">Brief Description</label>
                     <textarea value={form.description} onChange={e => setF('description', e.target.value)}
-                      rows={3} placeholder="Briefly describe your project idea..."
-                      className="form-input resize-none" />
+                      rows={3} placeholder="Briefly describe your project idea..." className="form-input resize-none" />
                   </div>
                 </div>
                 <div className="flex gap-3 mt-4">
@@ -408,32 +377,104 @@ export default function StudentDashboard() {
                   <p className="text-sm mt-1">Click &quot;+ New Request&quot; to send your first guidance request</p>
                 </div>
               ) : requests.map(req => (
-                <div key={req.id} className="px-6 py-4">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-1 flex-wrap">
-                      <span className={`badge ${STATUS_STYLE[req.status] || 'bg-gray-50 text-gray-500 border-gray-200'}`}>
-                        {STATUS_ICON[req.status] || '❓'} {req.status}
-                      </span>
-                      <span className="badge bg-gray-50 text-gray-500 border-gray-200">{req.project_type}</span>
-                    </div>
-                    <h3 className="font-semibold text-gray-900 text-sm">{req.project_title}</h3>
-                    {req.project_domain && <p className="text-xs text-gray-500 mt-0.5">Domain: {req.project_domain}</p>}
-                    <p className="text-xs text-gray-400 mt-1">
-                      Sent to <span className="font-medium text-gray-600">{req.faculty_name}</span>
-                      {req.faculty_designation && ` (${req.faculty_designation})`}
-                      {' · '}{new Date(req.created_at).toLocaleDateString('en-IN')}
-                    </p>
-                    {req.faculty_note && (
-                      <div className={`mt-2 text-xs px-3 py-2 rounded-lg border ${
-                        req.status === 'accepted' ? 'bg-green-50 border-green-200 text-green-700' :
-                        req.status === 'held' ? 'bg-purple-50 border-purple-200 text-purple-700' :
-                        req.status === 'cancelled' ? 'bg-gray-50 border-gray-200 text-gray-500' :
-                        'bg-red-50 border-red-200 text-red-700'
-                      }`}>
-                        <strong>Faculty Note:</strong> {req.faculty_note}
-                      </div>
+                <div key={req.id} className="px-6 py-5">
+                  <div className="flex items-center gap-2 mb-2 flex-wrap">
+                    <span className={`badge ${STATUS_STYLE[req.status] || 'bg-gray-50 text-gray-500 border-gray-200'}`}>
+                      {STATUS_ICON[req.status]} {req.status}
+                    </span>
+                    <span className="badge bg-gray-50 text-gray-500 border-gray-200">{req.project_type}</span>
+                    {req.plagiarism_score !== null && req.plagiarism_score !== undefined && (
+                      <PlagiarismBadge score={req.plagiarism_score} />
                     )}
                   </div>
+
+                  <h3 className="font-semibold text-gray-900 text-sm">{req.project_title}</h3>
+                  {req.project_domain && <p className="text-xs text-gray-500 mt-0.5">Domain: {req.project_domain}</p>}
+                  <p className="text-xs text-gray-400 mt-1">
+                    Sent to <span className="font-medium text-gray-600">{req.faculty_name}</span>
+                    {req.faculty_designation && ` (${req.faculty_designation})`}
+                    {' · '}{new Date(req.created_at).toLocaleDateString('en-IN')}
+                  </p>
+
+                  {req.faculty_note && (
+                    <div className={`mt-2 text-xs px-3 py-2 rounded-lg border ${
+                      req.status === 'accepted' ? 'bg-green-50 border-green-200 text-green-700' :
+                      req.status === 'held' ? 'bg-purple-50 border-purple-200 text-purple-700' :
+                      req.status === 'cancelled' ? 'bg-gray-50 border-gray-200 text-gray-500' :
+                      'bg-red-50 border-red-200 text-red-700'
+                    }`}>
+                      <strong>Faculty Note:</strong> {req.faculty_note}
+                    </div>
+                  )}
+
+                  {/* Report upload section — only for accepted requests */}
+                  {req.status === 'accepted' && (
+                    <div className="mt-3 bg-blue-50/50 border border-blue-100 rounded-xl p-4">
+                      <p className="text-sm font-medium text-nfsu-navy mb-2">📄 Project Report</p>
+
+                      {req.report_url ? (
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-3">
+                            <a href={req.report_url} target="_blank" rel="noopener noreferrer"
+                              className="flex items-center gap-2 text-sm text-nfsu-blue hover:underline">
+                              📥 {req.report_filename || 'Download Report'}
+                            </a>
+                            <span className="text-xs text-gray-400">
+                              Uploaded {new Date(req.report_uploaded_at).toLocaleDateString('en-IN')}
+                            </span>
+                          </div>
+
+                          {/* Plagiarism result */}
+                          {req.plagiarism_score !== null && req.plagiarism_score !== undefined ? (
+                            <div className={`rounded-lg px-3 py-2 text-xs border ${
+                              req.plagiarism_score <= 20 ? 'bg-green-50 border-green-200 text-green-700' :
+                              req.plagiarism_score <= 40 ? 'bg-yellow-50 border-yellow-200 text-yellow-700' :
+                              'bg-red-50 border-red-200 text-red-700'
+                            }`}>
+                              <strong>Plagiarism Check Result:</strong> {req.plagiarism_score}%
+                              {req.plagiarism_remarks && <p className="mt-1">{req.plagiarism_remarks}</p>}
+                              <p className="text-xs opacity-70 mt-1">
+                                Checked on {new Date(req.plagiarism_checked_at).toLocaleDateString('en-IN')}
+                              </p>
+                            </div>
+                          ) : (
+                            <p className="text-xs text-gray-400">⏳ Awaiting plagiarism check from faculty...</p>
+                          )}
+
+                          {/* Re-upload option */}
+                          <button onClick={() => fileInputRefs.current[req.id]?.click()}
+                            className="text-xs text-gray-400 hover:text-nfsu-blue transition-colors">
+                            🔄 Re-upload report
+                          </button>
+                        </div>
+                      ) : (
+                        <div>
+                          <p className="text-xs text-gray-500 mb-2">Upload your project report PDF for plagiarism check by your guide.</p>
+                          <button onClick={() => fileInputRefs.current[req.id]?.click()}
+                            disabled={uploadingId === req.id}
+                            className="btn-primary text-xs px-4 py-2 disabled:opacity-60">
+                            {uploadingId === req.id ? '⏳ Uploading...' : '📤 Upload Report PDF'}
+                          </button>
+                          {uploadError[req.id] && (
+                            <p className="text-xs text-red-600 mt-1">⚠️ {uploadError[req.id]}</p>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Hidden file input */}
+                      <input
+                        ref={el => { fileInputRefs.current[req.id] = el }}
+                        type="file"
+                        accept=".pdf"
+                        className="hidden"
+                        onChange={e => {
+                          const file = e.target.files?.[0]
+                          if (file) uploadReport(req.id, file)
+                          e.target.value = ''
+                        }}
+                      />
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -442,9 +483,7 @@ export default function StudentDashboard() {
           <p className="text-center text-xs text-gray-400 pb-4">
             © {new Date().getFullYear()} NFSU · Created &amp; Managed by{' '}
             <a href="https://tamannakhurana.vercel.app/" target="_blank" rel="noopener noreferrer"
-              className="font-medium hover:underline" style={{ color: '#E8A820' }}>
-              Tamanna Khurana
-            </a>
+              className="font-medium hover:underline" style={{ color: '#E8A820' }}>Tamanna Khurana</a>
           </p>
         </main>
       </div>
