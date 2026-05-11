@@ -44,6 +44,11 @@ export async function GET(request: NextRequest) {
       whereConditions.push(`p.specialization_id = $${paramIdx++}`)
       params.push(parseInt(specializationId))
     }
+    const guideEmail = searchParams.get('guide_email')
+if (guideEmail) {
+  whereConditions.push(`p.guide_email = $${paramIdx++}`)
+  params.push(guideEmail)
+}
     if (search) {
       whereConditions.push(`(p.title ILIKE $${paramIdx} OR p.student_name ILIKE $${paramIdx} OR p.guide_name ILIKE $${paramIdx})`)
       params.push(`%${search}%`)
