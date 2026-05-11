@@ -15,6 +15,7 @@ interface GuidanceRequest {
   faculty_note: string; created_at: string
   report_url: string; report_filename: string; report_uploaded_at: string
   plagiarism_score: number; plagiarism_remarks: string; plagiarism_checked_at: string
+  request_doc_url: string; request_doc_filename: string
 }
 
 const STATUS_STYLE: Record<string, string> = {
@@ -33,11 +34,7 @@ function PlagiarismBadge({ score }: { score: number }) {
     : score <= 40 ? 'bg-yellow-50 text-yellow-700 border-yellow-200'
     : 'bg-red-50 text-red-700 border-red-200'
   const label = score <= 20 ? 'Low' : score <= 40 ? 'Moderate' : 'High'
-  return (
-    <span className={`badge ${color}`}>
-      📊 {score}% Plagiarism — {label}
-    </span>
-  )
+  return <span className={`badge ${color}`}>📊 {score}% Plagiarism — {label}</span>
 }
 
 export default function StudentDashboard() {
@@ -54,11 +51,12 @@ export default function StudentDashboard() {
   const [formSuccess, setFormSuccess] = useState('')
   const [uploadingId, setUploadingId] = useState<number | null>(null)
   const [uploadError, setUploadError] = useState<Record<number, string>>({})
-  const fileInputRefs = useRef<Record<number, HTMLInputElement | null>>({})
+  const reportInputRefs = useRef<Record<number, HTMLInputElement | null>>({})
 
   const [form, setForm] = useState({
     faculty_id: '', project_title: '', project_domain: '',
-    description: '', project_type: 'minor'
+    description: '', project_type: 'minor',
+    document: null as File | null,
   })
 
   useEffect(() => {
@@ -87,11 +85,13 @@ export default function StudentDashboard() {
     const now = new Date()
     const yearsCompleted = now.getFullYear() - user.batch_start_year
     const sem = (now.getMonth() + 1) >= 7 ? yearsCompleted * 2 + 1 : yearsCompleted * 2
-    const totalSem = user.batch_end_year && user.batch_start_year ? (user.batch_end_year - user.batch_start_year) * 2 : 10
+    const totalSem = user.batch_end_year && user.batch_start_year
+      ? (user.batch_end_year - user.batch_start_year) * 2 : 10
     return Math.min(Math.max(1, sem), totalSem)
   })()
 
-  const totalSem = user?.batch_end_year && user?.batch_start_year ? (user.batch_end_year - user.batch_start_year) * 2 : 10
+  const totalSem = user?.batch_end_year && user?.batch_start_year
+    ? (user.batch_end_year - user.batch_start_year) * 2 : 10
 
   const allowedProjectType: 'major' | 'minor' | 'both' = (() => {
     if (!currentSem) return 'both'
@@ -114,17 +114,26 @@ export default function StudentDashboard() {
     e.preventDefault()
     setFormError(''); setFormSuccess(''); setSubmitting(true)
     try {
-      const res = await fetch('/api/guidance-requests', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...form, faculty_id: parseInt(form.faculty_id) })
-      })
+      // Use FormData to support optional file attachment
+      const fd = new FormData()
+      fd.append('faculty_id', form.faculty_id)
+      fd.append('project_title', form.project_title)
+      fd.append('project_domain', form.project_domain)
+      fd.append('description', form.description)
+      fd.append('project_type', form.project_type)
+      if (form.document) fd.append('document', form.document)
+
+      const res = await fetch('/api/guidance-requests', { method: 'POST', body: fd })
       const data = await res.json()
       if (!res.ok) { setFormError(data.error || 'Failed to send'); setSubmitting(false); return }
       setFormSuccess('Request sent successfully!')
       const sel = faculty.find(f => f.id === parseInt(form.faculty_id))
-      setRequests(prev => [...prev, { ...data.request, faculty_name: sel?.name || '', faculty_designation: sel?.designation || '' }])
-      setForm(f => ({ ...f, faculty_id: '', project_title: '', project_domain: '', description: '' }))
+      setRequests(prev => [...prev, {
+        ...data.request,
+        faculty_name: sel?.name || '',
+        faculty_designation: sel?.designation || '',
+      }])
+      setForm(f => ({ ...f, faculty_id: '', project_title: '', project_domain: '', description: '', document: null }))
       setTimeout(() => { setShowForm(false); setFormSuccess('') }, 2000)
     } catch { setFormError('Failed to send. Try again.') }
     setSubmitting(false)
@@ -141,7 +150,6 @@ export default function StudentDashboard() {
       if (!res.ok) {
         setUploadError(prev => ({ ...prev, [reqId]: data.error || 'Upload failed' }))
       } else {
-        // Update local state
         setRequests(prev => prev.map(r => r.id === reqId
           ? { ...r, report_url: data.url, report_filename: file.name, report_uploaded_at: new Date().toISOString() }
           : r
@@ -243,14 +251,19 @@ export default function StudentDashboard() {
           <div className="px-4 sm:px-6 py-4 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <button onClick={() => setSidebarOpen(true)}
-                className="md:hidden w-9 h-9 bg-white/10 rounded-lg flex items-center justify-center flex-shrink-0">☰</button>
+                className="md:hidden w-9 h-9 bg-white/10 rounded-lg flex items-center justify-center flex-shrink-0">
+                ☰
+              </button>
               <div>
                 <div className="text-xs text-white/60">NFSU Projects Database</div>
                 <div className="text-sm font-semibold">Student Portal</div>
               </div>
             </div>
             <div className="flex items-center gap-3">
-              <button onClick={() => setShowChangePassword(true)} className="text-white/60 text-sm hover:text-white hidden sm:block">🔐 Change Password</button>
+              <button onClick={() => setShowChangePassword(true)}
+                className="text-white/60 text-sm hover:text-white hidden sm:block">
+                🔐 Change Password
+              </button>
               <button onClick={handleLogout} className="text-white/60 text-sm hover:text-white">🚪 Logout</button>
             </div>
           </div>
@@ -269,10 +282,15 @@ export default function StudentDashboard() {
                 <div className="flex flex-wrap gap-2 mt-3">
                   {user.course_name && <span className="badge bg-blue-50 text-blue-700 border-blue-200">{user.course_name}</span>}
                   {user.campus_name && <span className="badge bg-gray-50 text-gray-600 border-gray-200">📍 {user.campus_name}</span>}
-                  {currentSem && <span className="badge bg-amber-50 text-amber-700 border-amber-200">📚 Sem {currentSem} · {currentSem % 2 === 1 ? 'Jul–Dec' : 'Jan–May'}</span>}
+                  {currentSem && (
+                    <span className="badge bg-amber-50 text-amber-700 border-amber-200">
+                      📚 Sem {currentSem} · {currentSem % 2 === 1 ? 'Jul–Dec' : 'Jan–May'}
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
+
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-5 pt-5 border-t border-gray-100">
               <div><p className="text-xs text-gray-400">Enrollment</p><p className="text-sm font-medium text-gray-800 mt-0.5">{user.enrollment_number || '—'}</p></div>
               <div><p className="text-xs text-gray-400">Batch</p><p className="text-sm font-medium text-gray-800 mt-0.5">{user.batch_start_year ? `${user.batch_start_year}–${user.batch_end_year}` : '—'}</p></div>
@@ -312,41 +330,56 @@ export default function StudentDashboard() {
             <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between flex-wrap gap-3">
               <div>
                 <h2 className="font-heading font-semibold text-nfsu-navy">Project Guidance Requests</h2>
-                <p className="text-xs text-gray-400 mt-0.5">Send requests and upload your project report for plagiarism check</p>
+                <p className="text-xs text-gray-400 mt-0.5">Send requests, attach documents, and upload your report for plagiarism check</p>
               </div>
               <button onClick={() => setShowForm(!showForm)} className="btn-primary text-sm px-4 py-2">
                 {showForm ? '✕ Cancel' : '+ New Request'}
               </button>
             </div>
 
+            {/* New request form */}
             {showForm && (
               <form onSubmit={submitRequest} className="p-6 border-b border-gray-100 bg-gray-50/50">
                 {formError && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3 mb-4">⚠️ {formError}</div>}
                 {formSuccess && <div className="bg-green-50 border border-green-200 text-green-700 text-sm rounded-xl px-4 py-3 mb-4">✅ {formSuccess}</div>}
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="sm:col-span-2">
                     <label className="form-label">Select Faculty Guide *</label>
                     <select value={form.faculty_id} onChange={e => setF('faculty_id', e.target.value)} required className="form-input">
                       <option value="">— Choose a faculty member —</option>
-                      {faculty.map(f => <option key={f.id} value={f.id}>{f.name}{f.designation ? ` (${f.designation})` : ''}</option>)}
+                      {faculty.length === 0
+                        ? <option disabled>No faculty available yet</option>
+                        : faculty.map(f => (
+                          <option key={f.id} value={f.id}>
+                            {f.name}{f.designation ? ` (${f.designation})` : ''}{f.department ? ` — ${f.department}` : ''}
+                          </option>
+                        ))}
                     </select>
                   </div>
+
                   <div className="sm:col-span-2">
                     <label className="form-label">Project Title *</label>
                     <input type="text" value={form.project_title} onChange={e => setF('project_title', e.target.value)}
                       required placeholder="e.g., AI-based Network Intrusion Detection" className="form-input" />
                   </div>
+
                   <div>
                     <label className="form-label">Domain / Area</label>
                     <input type="text" value={form.project_domain} onChange={e => setF('project_domain', e.target.value)}
-                      placeholder="e.g., Cyber Security, ML" className="form-input" />
+                      placeholder="e.g., Cyber Security, ML, Forensics" className="form-input" />
                   </div>
+
                   <div>
                     <label className="form-label">Project Type</label>
                     {allowedProjectType === 'minor' ? (
-                      <div className="form-input bg-blue-50 border-blue-200 text-blue-700 cursor-not-allowed">📌 Minor Project (Sem {currentSem})</div>
+                      <div className="form-input bg-blue-50 border-blue-200 text-blue-700 cursor-not-allowed">
+                        📌 Minor Project <span className="text-xs opacity-70">(Sem {currentSem})</span>
+                      </div>
                     ) : allowedProjectType === 'major' ? (
-                      <div className="form-input bg-amber-50 border-amber-200 text-amber-700 cursor-not-allowed">⭐ Major Project (Sem {currentSem})</div>
+                      <div className="form-input bg-amber-50 border-amber-200 text-amber-700 cursor-not-allowed">
+                        ⭐ Major Project <span className="text-xs opacity-70">(Sem {currentSem})</span>
+                      </div>
                     ) : (
                       <select value={form.project_type} onChange={e => setF('project_type', e.target.value)} className="form-input">
                         <option value="minor">📌 Minor Project</option>
@@ -354,13 +387,40 @@ export default function StudentDashboard() {
                       </select>
                     )}
                   </div>
+
                   <div className="sm:col-span-2">
                     <label className="form-label">Brief Description</label>
                     <textarea value={form.description} onChange={e => setF('description', e.target.value)}
-                      rows={3} placeholder="Briefly describe your project idea..." className="form-input resize-none" />
+                      rows={3} placeholder="Briefly describe your project idea and why you chose this faculty..."
+                      className="form-input resize-none" />
+                  </div>
+
+                  {/* Optional document attachment */}
+                  <div className="sm:col-span-2">
+                    <label className="form-label">
+                      Supporting Document
+                      <span className="text-gray-400 font-normal normal-case text-xs ml-1">(optional — synopsis, proposal, reference)</span>
+                    </label>
+                    <div className="mt-1">
+                      <input
+                        type="file"
+                        accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+                        onChange={e => setForm(f => ({ ...f, document: e.target.files?.[0] || null }))}
+                        className="block w-full text-sm text-gray-500 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-nfsu-navy file:text-white hover:file:bg-nfsu-blue cursor-pointer"
+                      />
+                      {form.document && (
+                        <p className="text-xs text-green-600 mt-1.5 flex items-center gap-1">
+                          📎 {form.document.name}
+                          <button type="button" onClick={() => setForm(f => ({ ...f, document: null }))}
+                            className="text-red-400 hover:text-red-600 ml-1">✕</button>
+                        </p>
+                      )}
+                      <p className="text-xs text-gray-400 mt-1">Max 10MB. PDF, Word, or image files accepted.</p>
+                    </div>
                   </div>
                 </div>
-                <div className="flex gap-3 mt-4">
+
+                <div className="flex gap-3 mt-5">
                   <button type="submit" disabled={submitting} className="btn-primary disabled:opacity-60">
                     {submitting ? 'Sending...' : '📨 Send Guidance Request'}
                   </button>
@@ -369,6 +429,7 @@ export default function StudentDashboard() {
               </form>
             )}
 
+            {/* Requests list */}
             <div className="divide-y divide-gray-100">
               {requests.length === 0 ? (
                 <div className="p-12 text-center text-gray-400">
@@ -378,9 +439,10 @@ export default function StudentDashboard() {
                 </div>
               ) : requests.map(req => (
                 <div key={req.id} className="px-6 py-5">
+                  {/* Status + type badges */}
                   <div className="flex items-center gap-2 mb-2 flex-wrap">
                     <span className={`badge ${STATUS_STYLE[req.status] || 'bg-gray-50 text-gray-500 border-gray-200'}`}>
-                      {STATUS_ICON[req.status]} {req.status}
+                      {STATUS_ICON[req.status] || '❓'} {req.status}
                     </span>
                     <span className="badge bg-gray-50 text-gray-500 border-gray-200">{req.project_type}</span>
                     {req.plagiarism_score !== null && req.plagiarism_score !== undefined && (
@@ -396,6 +458,15 @@ export default function StudentDashboard() {
                     {' · '}{new Date(req.created_at).toLocaleDateString('en-IN')}
                   </p>
 
+                  {/* Attached document */}
+                  {req.request_doc_url && (
+                    <a href={req.request_doc_url} target="_blank" rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 text-xs text-nfsu-blue hover:underline mt-1.5">
+                      📎 {req.request_doc_filename || 'View attached document'}
+                    </a>
+                  )}
+
+                  {/* Faculty note */}
                   {req.faculty_note && (
                     <div className={`mt-2 text-xs px-3 py-2 rounded-lg border ${
                       req.status === 'accepted' ? 'bg-green-50 border-green-200 text-green-700' :
@@ -407,16 +478,16 @@ export default function StudentDashboard() {
                     </div>
                   )}
 
-                  {/* Report upload section — only for accepted requests */}
+                  {/* Report upload — only for accepted requests */}
                   {req.status === 'accepted' && (
                     <div className="mt-3 bg-blue-50/50 border border-blue-100 rounded-xl p-4">
                       <p className="text-sm font-medium text-nfsu-navy mb-2">📄 Project Report</p>
 
                       {req.report_url ? (
                         <div className="space-y-2">
-                          <div className="flex items-center gap-3">
+                          <div className="flex items-center gap-3 flex-wrap">
                             <a href={req.report_url} target="_blank" rel="noopener noreferrer"
-                              className="flex items-center gap-2 text-sm text-nfsu-blue hover:underline">
+                              className="flex items-center gap-1.5 text-sm text-nfsu-blue hover:underline">
                               📥 {req.report_filename || 'Download Report'}
                             </a>
                             <span className="text-xs text-gray-400">
@@ -424,25 +495,23 @@ export default function StudentDashboard() {
                             </span>
                           </div>
 
-                          {/* Plagiarism result */}
                           {req.plagiarism_score !== null && req.plagiarism_score !== undefined ? (
                             <div className={`rounded-lg px-3 py-2 text-xs border ${
                               req.plagiarism_score <= 20 ? 'bg-green-50 border-green-200 text-green-700' :
                               req.plagiarism_score <= 40 ? 'bg-yellow-50 border-yellow-200 text-yellow-700' :
                               'bg-red-50 border-red-200 text-red-700'
                             }`}>
-                              <strong>Plagiarism Check Result:</strong> {req.plagiarism_score}%
-                              {req.plagiarism_remarks && <p className="mt-1">{req.plagiarism_remarks}</p>}
-                              <p className="text-xs opacity-70 mt-1">
-                                Checked on {new Date(req.plagiarism_checked_at).toLocaleDateString('en-IN')}
+                              <strong>Plagiarism Check:</strong> {req.plagiarism_score}%
+                              {req.plagiarism_remarks && <p className="mt-0.5">{req.plagiarism_remarks}</p>}
+                              <p className="text-xs opacity-70 mt-0.5">
+                                Checked {new Date(req.plagiarism_checked_at).toLocaleDateString('en-IN')}
                               </p>
                             </div>
                           ) : (
                             <p className="text-xs text-gray-400">⏳ Awaiting plagiarism check from faculty...</p>
                           )}
 
-                          {/* Re-upload option */}
-                          <button onClick={() => fileInputRefs.current[req.id]?.click()}
+                          <button onClick={() => reportInputRefs.current[req.id]?.click()}
                             className="text-xs text-gray-400 hover:text-nfsu-blue transition-colors">
                             🔄 Re-upload report
                           </button>
@@ -450,7 +519,7 @@ export default function StudentDashboard() {
                       ) : (
                         <div>
                           <p className="text-xs text-gray-500 mb-2">Upload your project report PDF for plagiarism check by your guide.</p>
-                          <button onClick={() => fileInputRefs.current[req.id]?.click()}
+                          <button onClick={() => reportInputRefs.current[req.id]?.click()}
                             disabled={uploadingId === req.id}
                             className="btn-primary text-xs px-4 py-2 disabled:opacity-60">
                             {uploadingId === req.id ? '⏳ Uploading...' : '📤 Upload Report PDF'}
@@ -461,12 +530,9 @@ export default function StudentDashboard() {
                         </div>
                       )}
 
-                      {/* Hidden file input */}
                       <input
-                        ref={el => { fileInputRefs.current[req.id] = el }}
-                        type="file"
-                        accept=".pdf"
-                        className="hidden"
+                        ref={el => { reportInputRefs.current[req.id] = el }}
+                        type="file" accept=".pdf" className="hidden"
                         onChange={e => {
                           const file = e.target.files?.[0]
                           if (file) uploadReport(req.id, file)

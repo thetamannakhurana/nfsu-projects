@@ -1,5 +1,6 @@
-// Save as: app/api/guidance-requests/route.ts  (REPLACE)
+// app/api/guidance-requests/route.ts  (REPLACE)
 import { NextRequest, NextResponse } from 'next/server'
+import { put } from '@vercel/blob'
 import { query } from '@/lib/db'
 import { requireAuth } from '@/lib/auth'
 
@@ -9,23 +10,75 @@ export async function POST(request: NextRequest) {
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     if (session.role !== 'student') return NextResponse.json({ error: 'Only students can send guidance requests' }, { status: 403 })
 
-    const { faculty_id, project_title, project_domain, description, project_type } = await request.json()
-    if (!faculty_id || !project_title) return NextResponse.json({ error: 'Faculty and project title are required' }, { status: 400 })
+    // Handle both multipart (with file) and JSON (without file)
+    let faculty_id: string, project_title: string, project_domain: string,
+        description: string, project_type: string
+    let docUrl: string | null = null
+    let docFilename: string | null = null
+
+    const contentType = request.headers.get('content-type') || ''
+
+    if (contentType.includes('multipart/form-data')) {
+      const formData = await request.formData()
+      faculty_id = formData.get('faculty_id') as string
+      project_title = formData.get('project_title') as string
+      project_domain = formData.get('project_domain') as string || ''
+      description = formData.get('description') as string || ''
+      project_type = formData.get('project_type') as string || 'minor'
+
+      // Handle optional document
+      const doc = formData.get('document') as File | null
+      if (doc && doc.size > 0) {
+        if (doc.size > 10 * 1024 * 1024) {
+          return NextResponse.json({ error: 'Document must be under 10MB' }, { status: 400 })
+        }
+        const allowedTypes = ['application/pdf', 'application/msword',
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          'image/jpeg', 'image/png']
+        if (!allowedTypes.includes(doc.type)) {
+          return NextResponse.json({ error: 'Only PDF, Word documents, and images are allowed' }, { status: 400 })
+        }
+        const filename = `request-docs/${session.userId}-${Date.now()}-${doc.name}`
+        const blob = await put(filename, doc, { access: 'public' })
+        docUrl = blob.url
+        docFilename = doc.name
+      }
+    } else {
+      // JSON body (no file)
+      const body = await request.json()
+      faculty_id = body.faculty_id
+      project_title = body.project_title
+      project_domain = body.project_domain || ''
+      description = body.description || ''
+      project_type = body.project_type || 'minor'
+    }
+
+    if (!faculty_id || !project_title) {
+      return NextResponse.json({ error: 'Faculty and project title are required' }, { status: 400 })
+    }
 
     const facultyCheck = await query('SELECT id FROM users WHERE id=$1 AND role=$2', [faculty_id, 'faculty'])
-    if (facultyCheck.rows.length === 0) return NextResponse.json({ error: 'Selected faculty not found' }, { status: 404 })
+    if (facultyCheck.rows.length === 0) {
+      return NextResponse.json({ error: 'Selected faculty not found' }, { status: 404 })
+    }
 
     const existing = await query(
       `SELECT id FROM guidance_requests WHERE student_id=$1 AND faculty_id=$2 AND status='pending'`,
       [session.userId, faculty_id]
     )
-    if (existing.rows.length > 0) return NextResponse.json({ error: 'You already have a pending request with this faculty' }, { status: 409 })
+    if (existing.rows.length > 0) {
+      return NextResponse.json({ error: 'You already have a pending request with this faculty' }, { status: 409 })
+    }
 
     const result = await query(
-      `INSERT INTO guidance_requests (student_id, faculty_id, project_title, project_domain, description, project_type)
-       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
-      [session.userId, faculty_id, project_title, project_domain, description, project_type || 'minor']
+      `INSERT INTO guidance_requests
+         (student_id, faculty_id, project_title, project_domain, description, project_type, request_doc_url, request_doc_filename)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       RETURNING *`,
+      [session.userId, faculty_id, project_title, project_domain, description,
+       project_type, docUrl, docFilename]
     )
+
     return NextResponse.json({ request: result.rows[0] }, { status: 201 })
   } catch (error) {
     console.error('Guidance request error:', error)
