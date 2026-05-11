@@ -2,12 +2,13 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import ChangePasswordModal from '@/components/ChangePasswordModal'
 
-interface User { 
+interface User {
   id: number; name: string; email: string; role: string
   designation: string; department: string; campus_name: string
 }
-interface Project { 
+interface Project {
   id: number; title: string; student_name: string; student_email: string
   project_type: string; batch_start_year: number; batch_end_year: number
   status: string; created_at: string; campus_name: string
@@ -26,6 +27,7 @@ export default function FacultyDashboard() {
   const [allRequests, setAllRequests] = useState<GuidanceRequest[]>([])
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<'projects' | 'requests'>('projects')
+  const [showChangePassword, setShowChangePassword] = useState(false)
 
   useEffect(() => {
     fetch('/api/auth/me')
@@ -36,7 +38,6 @@ export default function FacultyDashboard() {
         }
         setUser(data.user)
         return Promise.all([
-          // Only fetch projects where this faculty is the guide
           fetch(`/api/projects?guide_email=${encodeURIComponent(data.user.email)}&limit=100`).then(r => r.json()),
           fetch('/api/guidance-requests').then(r => r.json()),
         ])
@@ -67,11 +68,13 @@ export default function FacultyDashboard() {
 
   return (
     <div className="min-h-screen bg-nfsu-offwhite flex">
+      {showChangePassword && <ChangePasswordModal onClose={() => setShowChangePassword(false)} />}
+
       {/* Sidebar */}
       <aside className="w-64 bg-white border-r border-gray-200 flex-col fixed h-full z-20 hidden md:flex">
         <div className="p-4 border-b border-gray-100">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 bg-nfsu-navy rounded-lg flex items-center justify-center text-sm text-white">⚖️</div>
+            <div className="w-8 h-8 bg-nfsu-navy rounded-lg flex items-center justify-center text-sm">⚖️</div>
             <div>
               <div className="text-xs text-gray-400 leading-none">NFSU</div>
               <div className="text-sm font-semibold text-nfsu-navy">Projects DB</div>
@@ -102,7 +105,7 @@ export default function FacultyDashboard() {
           </Link>
         </nav>
 
-        {/* Full name + designation at bottom */}
+        {/* Bottom — full name + change password + logout */}
         <div className="p-3 border-t border-gray-100">
           <div className="px-3 py-2.5 bg-nfsu-navy/5 rounded-xl mb-2">
             <p className="text-sm font-semibold text-nfsu-navy leading-snug">{user?.name}</p>
@@ -110,9 +113,19 @@ export default function FacultyDashboard() {
             {user?.department && <p className="text-xs text-gray-400 mt-0.5 truncate" title={user.department}>{user.department}</p>}
             {user?.campus_name && <p className="text-xs text-gray-400 mt-0.5">📍 {user.campus_name}</p>}
           </div>
+          <button onClick={() => setShowChangePassword(true)}
+            className="sidebar-link text-nfsu-blue hover:bg-blue-50 w-full mb-0.5">
+            <span>🔐</span> Change Password
+          </button>
           <button onClick={handleLogout} className="sidebar-link text-red-500 hover:bg-red-50 w-full">
             <span>🚪</span> Sign Out
           </button>
+          <p className="text-xs text-center text-gray-300 mt-3">
+            <a href="https://tamannakhurana.vercel.app/" target="_blank" rel="noopener noreferrer"
+              className="hover:underline" style={{ color: '#C8972A' }}>
+              Tamanna Khurana
+            </a>
+          </p>
         </div>
       </aside>
 
@@ -127,7 +140,11 @@ export default function FacultyDashboard() {
               </h1>
               <p className="text-xs text-gray-400 mt-0.5">{user?.department}</p>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 sm:gap-3">
+              <button onClick={() => setShowChangePassword(true)}
+                className="text-xs text-nfsu-blue border border-blue-200 rounded-lg px-3 py-1.5 hover:bg-blue-50 transition-colors hidden sm:block">
+                🔐 Change Password
+              </button>
               {pendingRequests.length > 0 && (
                 <Link href="/faculty/guidance"
                   className="flex items-center gap-2 text-sm bg-red-50 text-red-600 border border-red-200 rounded-lg px-3 py-1.5 hover:bg-red-100 transition-colors">
@@ -145,12 +162,12 @@ export default function FacultyDashboard() {
           {/* Stats */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
             {[
-              { label: 'My Projects', value: myProjects.length, icon: '📁', color: 'border-l-nfsu-blue' },
-              { label: 'Major Projects', value: myProjects.filter(p => p.project_type === 'major').length, icon: '⭐', color: 'border-l-amber-400' },
-              { label: 'Minor Projects', value: myProjects.filter(p => p.project_type === 'minor').length, icon: '📌', color: 'border-l-blue-400' },
-              { label: 'Pending Requests', value: pendingRequests.length, icon: '📬', color: 'border-l-red-400' },
+              { label: 'My Projects', value: myProjects.length, icon: '📁', color: 'border-l-4 border-nfsu-blue' },
+              { label: 'Major Projects', value: myProjects.filter(p => p.project_type === 'major').length, icon: '⭐', color: 'border-l-4 border-amber-400' },
+              { label: 'Minor Projects', value: myProjects.filter(p => p.project_type === 'minor').length, icon: '📌', color: 'border-l-4 border-blue-400' },
+              { label: 'Pending Requests', value: pendingRequests.length, icon: '📬', color: 'border-l-4 border-red-400' },
             ].map(s => (
-              <div key={s.label} className={`stat-card border-l-4 ${s.color}`}>
+              <div key={s.label} className={`stat-card ${s.color}`}>
                 <div className="flex items-start justify-between">
                   <div>
                     <p className="text-2xl font-heading font-bold text-nfsu-navy">{s.value}</p>
@@ -215,7 +232,7 @@ export default function FacultyDashboard() {
                           </td>
                           <td className="text-xs">
                             <p className="font-medium text-gray-800">{p.student_name}</p>
-                            <p className="text-gray-400 text-xs">{p.student_email}</p>
+                            <p className="text-gray-400">{p.student_email}</p>
                           </td>
                           <td className="text-xs text-gray-500">{p.course_name || '—'}</td>
                           <td>

@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
+import ChangePasswordModal from '@/components/ChangePasswordModal'
 
 interface User {
   id: number; name: string; email: string; role: string
@@ -22,6 +23,7 @@ export default function StudentDashboard() {
   const [loading, setLoading] = useState(true)
   const [authError, setAuthError] = useState('')
   const [showForm, setShowForm] = useState(false)
+  const [showChangePassword, setShowChangePassword] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [formError, setFormError] = useState('')
   const [formSuccess, setFormSuccess] = useState('')
@@ -43,19 +45,12 @@ export default function StudentDashboard() {
           return
         }
         if (mounted) setUser(meData.user)
-
         const [facultyRes, reqRes] = await Promise.all([
           fetch('/api/faculty'),
           fetch('/api/guidance-requests'),
         ])
-        if (facultyRes.ok) {
-          const d = await facultyRes.json()
-          if (mounted) setFaculty(d.faculty || [])
-        }
-        if (reqRes.ok) {
-          const d = await reqRes.json()
-          if (mounted) setRequests(d.requests || [])
-        }
+        if (facultyRes.ok) { const d = await facultyRes.json(); if (mounted) setFaculty(d.faculty || []) }
+        if (reqRes.ok) { const d = await reqRes.json(); if (mounted) setRequests(d.requests || []) }
       } catch (err) {
         console.error('Dashboard load error:', err)
         if (mounted) setAuthError('Something went wrong. Please refresh.')
@@ -67,47 +62,26 @@ export default function StudentDashboard() {
     return () => { mounted = false }
   }, [])
 
-  // ── Semester calculation (NFSU academic calendar) ──────────────────
-  // Odd sems  (1,3,5,...) → July – December
-  // Even sems (2,4,6,...) → January – May
-  // Batch starts July of batchStartYear = Sem 1
   const currentSem = (() => {
     if (!user?.batch_start_year) return null
     const now = new Date()
     const currentYear = now.getFullYear()
-    const currentMonth = now.getMonth() + 1 // 1–12
+    const currentMonth = now.getMonth() + 1
     const yearsCompleted = currentYear - user.batch_start_year
-    // Jan–June = even sem (yearsCompleted × 2)
-    // July–Dec = odd sem (yearsCompleted × 2 + 1)
-    const sem = currentMonth >= 7
-      ? yearsCompleted * 2 + 1
-      : yearsCompleted * 2
-    const totalSem = user.batch_end_year && user.batch_start_year
-      ? (user.batch_end_year - user.batch_start_year) * 2
-      : 10
+    const sem = currentMonth >= 7 ? yearsCompleted * 2 + 1 : yearsCompleted * 2
+    const totalSem = user.batch_end_year && user.batch_start_year ? (user.batch_end_year - user.batch_start_year) * 2 : 10
     return Math.min(Math.max(1, sem), totalSem)
   })()
 
-  // ── Project type logic ─────────────────────────────────────────────
-  const totalSem = user?.batch_end_year && user?.batch_start_year
-    ? (user.batch_end_year - user.batch_start_year) * 2
-    : 10
+  const totalSem = user?.batch_end_year && user?.batch_start_year ? (user.batch_end_year - user.batch_start_year) * 2 : 10
 
   const allowedProjectType: 'major' | 'minor' | 'both' = (() => {
     if (!currentSem) return 'both'
-    if (totalSem === 10) {
-      if (currentSem >= 9) return 'major'
-      if (currentSem >= 7) return 'minor'
-      return 'both'
-    }
-    if (totalSem === 4) {
-      if (currentSem >= 3) return 'major'
-      return 'minor'
-    }
+    if (totalSem === 10) { if (currentSem >= 9) return 'major'; if (currentSem >= 7) return 'minor'; return 'both' }
+    if (totalSem === 4) { if (currentSem >= 3) return 'major'; return 'minor' }
     return 'both'
   })()
 
-  // Auto-set project type when sem is known
   useEffect(() => {
     if (allowedProjectType === 'minor') setForm(f => ({ ...f, project_type: 'minor' }))
     if (allowedProjectType === 'major') setForm(f => ({ ...f, project_type: 'major' }))
@@ -115,7 +89,7 @@ export default function StudentDashboard() {
 
   async function handleLogout() {
     await fetch('/api/auth/logout', { method: 'POST' })
-    window.location.href = '/student/login'
+    window.location.href = '/login'
   }
 
   async function submitRequest(e: React.FormEvent) {
@@ -134,9 +108,7 @@ export default function StudentDashboard() {
       setRequests(prev => [...prev, { ...data.request, faculty_name: sel?.name || '', faculty_designation: sel?.designation || '' }])
       setForm(f => ({ ...f, faculty_id: '', project_title: '', project_domain: '', description: '' }))
       setTimeout(() => { setShowForm(false); setFormSuccess('') }, 2000)
-    } catch {
-      setFormError('Failed to send request. Try again.')
-    }
+    } catch { setFormError('Failed to send request. Try again.') }
     setSubmitting(false)
   }
 
@@ -159,13 +131,15 @@ export default function StudentDashboard() {
         <div className="text-4xl mb-3">🔒</div>
         <h2 className="font-heading font-bold text-nfsu-navy text-lg mb-2">Session Expired</h2>
         <p className="text-gray-500 text-sm mb-5">{authError || 'Please login to access your dashboard.'}</p>
-        <a href="/student/login" className="btn-primary w-full justify-center">Go to Student Login</a>
+        <a href="/login" className="btn-primary w-full justify-center">Go to Login</a>
       </div>
     </div>
   )
 
   return (
     <div className="min-h-screen bg-nfsu-offwhite">
+      {showChangePassword && <ChangePasswordModal onClose={() => setShowChangePassword(false)} />}
+
       <header className="nfsu-header-bg text-white">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2.5">
@@ -175,20 +149,33 @@ export default function StudentDashboard() {
               <div className="text-sm font-semibold">Student Portal</div>
             </div>
           </Link>
-          <button onClick={handleLogout} className="text-white/60 text-sm hover:text-white transition-colors">🚪 Logout</button>
+          <div className="flex items-center gap-3">
+            <button onClick={() => setShowChangePassword(true)}
+              className="text-white/60 text-sm hover:text-white transition-colors hidden sm:block">
+              🔐 Change Password
+            </button>
+            <button onClick={handleLogout} className="text-white/60 text-sm hover:text-white transition-colors">🚪 Logout</button>
+          </div>
         </div>
         <div className="gold-line" />
       </header>
 
       <main className="max-w-4xl mx-auto px-4 sm:px-6 py-8 space-y-6">
-
         {/* Profile card */}
         <div className="bg-white rounded-2xl border border-gray-200 p-6">
           <div className="flex items-start gap-4">
             <div className="w-14 h-14 bg-nfsu-navy rounded-2xl flex items-center justify-center text-2xl flex-shrink-0">🎓</div>
             <div className="flex-1 min-w-0">
-              <h1 className="text-xl font-heading font-bold text-nfsu-navy">Welcome, {user.name.split(' ')[0]}!</h1>
-              <p className="text-gray-500 text-sm truncate">{user.email}</p>
+              <div className="flex items-start justify-between">
+                <div>
+                  <h1 className="text-xl font-heading font-bold text-nfsu-navy">Welcome, {user.name.split(' ')[0]}!</h1>
+                  <p className="text-gray-500 text-sm truncate">{user.email}</p>
+                </div>
+                <button onClick={() => setShowChangePassword(true)}
+                  className="text-xs text-nfsu-blue hover:underline sm:hidden flex-shrink-0 ml-2">
+                  🔐 Change Password
+                </button>
+              </div>
               <div className="flex flex-wrap gap-2 mt-3">
                 {user.course_name && <span className="badge bg-blue-50 text-blue-700 border-blue-200">{user.course_name}</span>}
                 {user.spec_name && <span className="badge bg-purple-50 text-purple-700 border-purple-200">{user.spec_name}</span>}
@@ -208,23 +195,14 @@ export default function StudentDashboard() {
             <div><p className="text-xs text-gray-400">Requests Sent</p><p className="text-sm font-medium text-gray-800 mt-0.5">{requests.length}</p></div>
           </div>
 
-          {/* Project type info banner */}
           {currentSem && allowedProjectType !== 'both' && (
             <div className={`mt-4 rounded-xl px-4 py-3 text-sm border flex items-start gap-2 ${allowedProjectType === 'minor' ? 'bg-blue-50 border-blue-200 text-blue-800' : 'bg-amber-50 border-amber-200 text-amber-800'}`}>
               <span>{allowedProjectType === 'minor' ? '📌' : '⭐'}</span>
               <div>
                 <strong>{allowedProjectType === 'minor' ? 'Minor Project semester' : 'Major Project semester'}</strong>
-                {allowedProjectType === 'minor' && totalSem === 10 && (
-                  <p className="text-xs mt-0.5 opacity-80">Sem 7–8 are for Minor projects. Major projects start from Semester 9 (M.Tech part).</p>
-                )}
-                {allowedProjectType === 'major' && totalSem === 10 && (
-                  <p className="text-xs mt-0.5 opacity-80">Sem 9–10 are for Major projects (M.Tech part).</p>
-                )}
-                {totalSem === 4 && (
-                  <p className="text-xs mt-0.5 opacity-80">
-                    {allowedProjectType === 'minor' ? 'Sem 1–2: Minor projects.' : 'Sem 3–4: Major projects.'}
-                  </p>
-                )}
+                {allowedProjectType === 'minor' && totalSem === 10 && <p className="text-xs mt-0.5 opacity-80">Sem 7–8 are for Minor projects. Major projects start from Semester 9 (M.Tech part).</p>}
+                {allowedProjectType === 'major' && totalSem === 10 && <p className="text-xs mt-0.5 opacity-80">Sem 9–10 are for Major projects (M.Tech part).</p>}
+                {totalSem === 4 && <p className="text-xs mt-0.5 opacity-80">{allowedProjectType === 'minor' ? 'Sem 1–2: Minor projects.' : 'Sem 3–4: Major projects.'}</p>}
               </div>
             </div>
           )}
@@ -258,24 +236,20 @@ export default function StudentDashboard() {
                         <option key={f.id} value={f.id}>
                           {f.name}{f.designation ? ` (${f.designation})` : ''}{f.department ? ` — ${f.department}` : ''}
                         </option>
-                      ))
-                    }
+                      ))}
                   </select>
-                  {faculty.length === 0 && <p className="text-xs text-amber-600 mt-1">⚠️ No faculty added yet. Admin needs to add faculty members first.</p>}
+                  {faculty.length === 0 && <p className="text-xs text-amber-600 mt-1">⚠️ No faculty added yet.</p>}
                 </div>
-
                 <div className="sm:col-span-2">
                   <label className="form-label">Project Title *</label>
                   <input type="text" value={form.project_title} onChange={e => setF('project_title', e.target.value)}
                     required placeholder="e.g., AI-based Network Intrusion Detection" className="form-input" />
                 </div>
-
                 <div>
                   <label className="form-label">Domain / Area</label>
                   <input type="text" value={form.project_domain} onChange={e => setF('project_domain', e.target.value)}
                     placeholder="e.g., Cyber Security, ML, Forensics" className="form-input" />
                 </div>
-
                 <div>
                   <label className="form-label">Project Type</label>
                   {allowedProjectType === 'minor' ? (
@@ -293,15 +267,13 @@ export default function StudentDashboard() {
                     </select>
                   )}
                 </div>
-
                 <div className="sm:col-span-2">
                   <label className="form-label">Brief Description</label>
                   <textarea value={form.description} onChange={e => setF('description', e.target.value)}
-                    rows={3} placeholder="Briefly describe your project idea and why you chose this faculty..."
+                    rows={3} placeholder="Briefly describe your project idea..."
                     className="form-input resize-none" />
                 </div>
               </div>
-
               <div className="flex gap-3 mt-4">
                 <button type="submit" disabled={submitting} className="btn-primary disabled:opacity-60">
                   {submitting ? 'Sending...' : '📨 Send Guidance Request'}
@@ -346,7 +318,11 @@ export default function StudentDashboard() {
         </div>
 
         <p className="text-center text-xs text-gray-400 pb-4">
-          © {new Date().getFullYear()} NFSU · Created &amp; Managed by <span className="font-medium" style={{ color: '#E8A820' }}>Tamanna Khurana</span>
+          © {new Date().getFullYear()} NFSU · Created &amp; Managed by{' '}
+          <a href="https://tamannakhurana.vercel.app/" target="_blank" rel="noopener noreferrer"
+            className="font-medium hover:underline" style={{ color: '#E8A820' }}>
+            Tamanna Khurana
+          </a>
         </p>
       </main>
     </div>

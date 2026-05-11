@@ -1,7 +1,7 @@
 ﻿'use client'
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import ChangePasswordModal from '@/components/ChangePasswordModal'
 
 interface Campus { id: number; name: string; location: string; state: string; code: string; description: string; project_count: string; }
 interface User { name: string; email: string; role: string; designation?: string; department?: string }
@@ -10,19 +10,17 @@ const CAMPUS_ICONS: Record<string, string> = { GUJ:'🏛️', DEL:'🏙️', GOA
 const CAMPUS_ORDER = ['GUJ','DEL','DWD','CHN','BPL','PNE','GHY','MNP','GOA','TRP','BBS','NGP','JPR','RPR','UGA']
 
 export default function HomePage() {
-  const router = useRouter()
   const [campuses, setCampuses] = useState<Campus[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [user, setUser] = useState<User | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [showChangePassword, setShowChangePassword] = useState(false)
 
   useEffect(() => {
-    // Check auth first
     fetch('/api/auth/me').then(r => r.ok ? r.json() : null).then(data => {
       if (data?.user) setUser(data.user)
     }).catch(() => {})
-
     fetch('/api/campuses').then(r => r.json()).then(data => {
       setCampuses(data.campuses || [])
       setLoading(false)
@@ -44,7 +42,6 @@ export default function HomePage() {
   )
   const total = campuses.reduce((s, c) => s + parseInt(c.project_count || '0'), 0)
 
-  // Role-based sidebar links
   const sidebarLinks = user ? (
     user.role === 'admin' ? [
       { href: '/admin/dashboard', icon: '📊', label: 'Dashboard' },
@@ -65,8 +62,26 @@ export default function HomePage() {
     ]
   ) : []
 
+  const SidebarBottom = () => (
+    <div className="p-3 border-t border-gray-100">
+      <div className="px-3 py-2 bg-nfsu-navy/5 rounded-xl mb-2">
+        <p className="text-sm font-semibold text-nfsu-navy truncate">{user?.name}</p>
+        <p className="text-xs text-gray-400 capitalize">{user?.role}</p>
+        {user?.designation && <p className="text-xs text-gray-400 truncate">{user.designation}</p>}
+      </div>
+      <button onClick={() => setShowChangePassword(true)}
+        className="sidebar-link text-nfsu-blue hover:bg-blue-50 w-full mb-0.5">
+        <span>🔐</span> Change Password
+      </button>
+      <button onClick={handleLogout} className="sidebar-link text-red-500 hover:bg-red-50 w-full">
+        <span>🚪</span> Sign Out
+      </button>
+    </div>
+  )
+
   return (
     <div className="min-h-screen bg-nfsu-offwhite flex">
+      {showChangePassword && <ChangePasswordModal onClose={() => setShowChangePassword(false)} />}
 
       {/* Sidebar — desktop */}
       {user && (
@@ -80,7 +95,6 @@ export default function HomePage() {
               </div>
             </div>
           </div>
-
           <nav className="flex-1 p-3 space-y-0.5 overflow-y-auto">
             {sidebarLinks.map(link => (
               <Link key={link.href} href={link.href}
@@ -89,22 +103,11 @@ export default function HomePage() {
               </Link>
             ))}
           </nav>
-
-          <div className="p-3 border-t border-gray-100">
-            <div className="px-3 py-2 bg-nfsu-navy/5 rounded-xl mb-2">
-              <p className="text-sm font-semibold text-nfsu-navy truncate">{user.name}</p>
-              <p className="text-xs text-gray-400 capitalize">{user.role}</p>
-              {user.designation && <p className="text-xs text-gray-400 truncate">{user.designation}</p>}
-            </div>
-            <button onClick={handleLogout}
-              className="sidebar-link text-red-500 hover:bg-red-50 w-full">
-              <span>🚪</span> Sign Out
-            </button>
-          </div>
+          <SidebarBottom />
         </aside>
       )}
 
-      {/* Mobile sidebar overlay */}
+      {/* Mobile sidebar */}
       {user && sidebarOpen && (
         <>
           <div className="fixed inset-0 bg-black/50 z-30 md:hidden" onClick={() => setSidebarOpen(false)} />
@@ -118,26 +121,17 @@ export default function HomePage() {
             </div>
             <nav className="flex-1 p-3 space-y-0.5">
               {sidebarLinks.map(link => (
-                <Link key={link.href} href={link.href} onClick={() => setSidebarOpen(false)}
-                  className="sidebar-link">
+                <Link key={link.href} href={link.href} onClick={() => setSidebarOpen(false)} className="sidebar-link">
                   <span>{link.icon}</span> {link.label}
                 </Link>
               ))}
             </nav>
-            <div className="p-3 border-t border-gray-100">
-              <p className="text-sm font-semibold text-nfsu-navy px-3">{user.name}</p>
-              <p className="text-xs text-gray-400 px-3 mb-2 capitalize">{user.role}</p>
-              <button onClick={handleLogout} className="sidebar-link text-red-500 hover:bg-red-50 w-full">
-                <span>🚪</span> Sign Out
-              </button>
-            </div>
+            <SidebarBottom />
           </aside>
         </>
       )}
 
-      {/* Main content */}
       <div className={`flex-1 flex flex-col ${user ? 'md:ml-60' : ''}`}>
-
         {/* Header */}
         <header className="nfsu-header-bg text-white relative">
           <div className="border-b border-white/10 px-4 sm:px-6 py-2">
@@ -145,18 +139,14 @@ export default function HomePage() {
               <span className="hidden sm:block">National Forensic Sciences University · Est. 2020</span>
               <span className="sm:hidden">NFSU · Est. 2020</span>
               {user ? (
-                <span className="text-white/60">
-                  Signed in as <span className="text-white/80 font-medium">{user.name}</span>
-                </span>
+                <span>Signed in as <span className="text-white/80 font-medium">{user.name}</span></span>
               ) : (
                 <Link href="/login" className="hover:text-white transition-colors">Sign In</Link>
               )}
             </div>
           </div>
-
           <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-10 relative z-10">
             <div className="flex items-center gap-3 sm:gap-5">
-              {/* Mobile menu button */}
               {user && (
                 <button onClick={() => setSidebarOpen(true)}
                   className="md:hidden w-9 h-9 bg-white/10 rounded-lg flex items-center justify-center text-white flex-shrink-0">
@@ -183,8 +173,6 @@ export default function HomePage() {
                 </div>
               </div>
             </div>
-
-            {/* Mobile stats */}
             <div className="flex gap-6 mt-4 md:hidden">
               <div>
                 <span className="text-nfsu-amber font-bold font-heading text-lg">{campuses.length}</span>
@@ -277,7 +265,13 @@ export default function HomePage() {
               <div>
                 <h3 className="font-heading font-bold text-base">NFSU Projects Database</h3>
                 <p className="text-white/50 text-xs mt-1">Official student project repository · National Forensic Sciences University</p>
-                <p className="text-white/30 text-xs mt-2">© {new Date().getFullYear()} NFSU · Created &amp; Managed by <span style={{color:'#E8A820'}}>Tamanna Khurana</span></p>
+                <p className="text-white/30 text-xs mt-2">
+                  © {new Date().getFullYear()} NFSU · Created &amp; Managed by{' '}
+                  <a href="https://tamannakhurana.vercel.app/" target="_blank" rel="noopener noreferrer"
+                    className="hover:underline font-medium" style={{ color: '#E8A820' }}>
+                    Tamanna Khurana
+                  </a>
+                </p>
               </div>
               {user && (
                 <div className="flex gap-4 text-white/40 text-xs flex-wrap">
